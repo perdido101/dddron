@@ -18,7 +18,18 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 Phase 1 ends in a feel gate. Nothing past it gets built until the runner feels
 good to a human, because everything downstream is worthless if it does not.
 
-## Running it
+## Play it
+
+**https://perdido101.github.io/dddron/**
+
+Published from this branch by `.github/workflows/playtest.yml` on every push, so
+the feel gates can be played from a link. Typecheck gates the deploy. This is a
+playtest harness for the static client only — the real deploy work (Colyseus
+host, environment-based server URL, room cleanup, telemetry) is phase 11.
+
+Click the canvas to capture the mouse.
+
+## Running it locally
 
 ```bash
 npm install
