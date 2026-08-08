@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BUZZKILL</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #bfe4f2;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #debug {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: rgba(24, 30, 38, 0.72);
+        color: #e9f4ff;
+        font-size: 12px;
+        line-height: 1.55;
+        white-space: pre;
+        pointer-events: none;
+        z-index: 10;
+      }
+      #debug[hidden] {
+        display: none;
+      }
+      #hint {
+        position: fixed;
+        left: 50%;
+        bottom: 22px;
+        transform: translateX(-50%);
+        padding: 9px 16px;
+        border-radius: 999px;
+        background: rgba(24, 30, 38, 0.68);
+        color: #e9f4ff;
+        font-size: 12px;
+        letter-spacing: 0.02em;
+        pointer-events: none;
+        z-index: 10;
+        transition: opacity 0.25s ease;
+      }
+      #boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #bfe4f2;
+        color: #2c3a45;
+        font-size: 13px;
+        letter-spacing: 0.18em;
+        z-index: 20;
+      }
+      #boot[hidden] {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="boot">BUZZKILL — LOADING PHYSICS…</div>
+    <div id="debug" hidden></div>
+    <div id="hint">click to look · WASD move · SPACE jump · ~ debug · O orbit cam</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

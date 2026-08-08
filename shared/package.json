@@ -1,0 +1,14 @@
+{
+  "name": "@buzzkill/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "constants.ts",
+  "types": "constants.ts",
+  "exports": {
+    "./constants": "./constants.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

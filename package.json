@@ -1,0 +1,19 @@
+{
+  "name": "buzzkill",
+  "private": true,
+  "version": "0.0.0",
+  "description": "BUZZKILL — asymmetric multiplayer party game (WildBox)",
+  "workspaces": [
+    "shared",
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace client",
+    "build": "npm run build --workspace client",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

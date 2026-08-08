@@ -1,0 +1,10 @@
+{
+  "name": "@buzzkill/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Colyseus authoritative rooms. Populated in phase 5 — see the build brief.",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}
