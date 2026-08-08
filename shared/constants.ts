@@ -169,6 +169,11 @@ export const CONTROLLER_SNAP_TO_GROUND = 0.3;
 export const RUNNER_SPAWN = [0.0, 2.0, 12.0] as const;
 /** unspecified. Downward bias applied while grounded so the controller sticks. */
 export const STICK_TO_GROUND_SPEED = 2.0;
+/**
+ * unspecified. Runner mass, used only to convert external forces (prop wash)
+ * into a velocity change. The runner is kinematic, so the solver never sees it.
+ */
+export const RUNNER_MASS = 1.0;
 /** unspecified. Rate at which the body turns to face its direction of travel. */
 export const FACING_TURN_RATE = 14.0;
 /** unspecified. Speeds below this count as standing still. */
@@ -259,6 +264,11 @@ export const DRONE_ANGULAR_DAMPING = 2.5;
 export const DRONE_FRICTION = 0.2;
 /** unspecified. Tilt smoothing rate toward the velocity-derived target. */
 export const TILT_RESPONSE = 7.0;
+/**
+ * derived. Speed at which the visual tilt reaches TILT_MAX. Tied to top speed,
+ * so full tilt reads as "flat out" rather than being reached halfway there.
+ */
+export const TILT_FULL_SPEED = DRONE_MAX_SPEED;
 /** unspecified. Soft spring resisting travel outside the altitude band. */
 export const ALTITUDE_SPRING = 34.0;
 export const ALTITUDE_SPRING_DAMPING = 5.5;
@@ -266,6 +276,60 @@ export const ALTITUDE_SPRING_DAMPING = 5.5;
 export const PROP_WASH_DOWNFORCE = 0.35;
 /** unspecified. Speed multiplier while limping back to a pad (phase 3). */
 export const DRONE_RETURN_SPEED_MULT = 0.5;
+
+/** unspecified. Drone launch point. */
+export const DRONE_SPAWN = [0.0, 5.0, -6.0] as const;
+/**
+ * unspecified. Vertical acceleration from Space / Shift. The drone cancels its
+ * own weight first (a toy drone that sinks the moment you stop holding Space is
+ * miserable to fly), so this is climb authority on top of a neutral hover.
+ */
+export const DRONE_VERTICAL_ACCELERATION = 9.0;
+/** Fraction of gravity the rotors cancel while powered. 1 = neutral hover. */
+export const DRONE_HOVER_COMPENSATION = 1.0;
+/**
+ * unspecified. Thrust cuts out at DRONE_MAX_SPEED and resumes below it, which
+ * caps top speed at the brief's value without ever assigning velocity (sacred
+ * constraint 1 forbids that). A smooth falloff cannot work here: at 9 m/s the
+ * brief's own damping of 0.6 already eats 5.4 of the 8.0 m/s^2 available, so
+ * any gradual falloff settles the drone near 5.4 m/s and it never reaches the
+ * stated top speed.
+ */
+export const DRONE_THRUST_CUTOFF = DRONE_MAX_SPEED;
+
+/**
+ * unspecified. A slow, ever-present wander so the drone can never be parked.
+ * Sacred constraint 1: "if the drone can hover precisely on a target and hold
+ * position, the game is dead". With only the brief's damping the drone coasts
+ * to a dead stop and stays there, which fails the phase 2 criterion that
+ * holding a spot be difficult. Two incommensurate sines keep it deterministic
+ * (no RNG), so it stays reproducible across clients in phase 5.
+ */
+export const DRONE_WANDER_ACCELERATION = 0.3;
+export const DRONE_WANDER_HZ_X = 0.37;
+export const DRONE_WANDER_HZ_Z = 0.29;
+
+/** unspecified. Rotor geometry and spin, in radians per second. */
+export const ROTOR_COUNT = 4;
+export const ROTOR_RADIUS = 0.26;
+export const ROTOR_ARM = 0.42;
+export const ROTOR_THICKNESS = 0.05;
+export const ROTOR_SPIN_IDLE = 14.0;
+export const ROTOR_SPIN_MAX = 55.0;
+
+/** unspecified. Chase camera for the drone. It sits further back and higher. */
+export const DRONE_CAMERA_DISTANCE = 6.5;
+export const DRONE_CAMERA_HEIGHT = 1.4;
+export const DRONE_CAMERA_LAG = 0.14;
+/** Yaw turn rate from the mouse while piloting. */
+export const DRONE_YAW_SENSITIVITY = 0.0022;
+
+/**
+ * unspecified. External shoves (prop wash) decay on the runner at this rate.
+ * The runner is kinematic, so pushes are integrated by hand rather than by the
+ * solver applying an impulse.
+ */
+export const PUSH_DECAY = 3.2;
 /** Dead on the floor immediately after detonation (phase 3 task list). */
 export const DRONE_INERT_TIME = 2.0;
 

@@ -9,9 +9,7 @@ import {
   CAMERA_PITCH_MAX,
   CAMERA_PITCH_MIN,
   CAMERA_PITCH_START,
-  CAMERA_TARGET_HEIGHT,
   CAMERA_UNBLOCK_SPEED,
-  FOOT_OFFSET,
   MOUSE_SENSITIVITY,
 } from '@shared/constants';
 
@@ -53,17 +51,24 @@ export class FollowCamera {
   }
 
   /**
-   * @param anchor the runner's interpolated capsule centre.
-   * @param exclude the runner's own collider, which must not block the boom.
+   * @param lookAt world point the camera frames.
+   * @param exclude the piloted body's own collider, which must not block the boom.
+   * @param boom how far back to sit; @param lag follow smoothing half-life.
    */
-  update(frameDelta: number, anchor: THREE.Vector3, exclude: RAPIER.Collider): void {
-    this.target.set(anchor.x, anchor.y - FOOT_OFFSET + CAMERA_TARGET_HEIGHT, anchor.z);
+  update(
+    frameDelta: number,
+    lookAt: THREE.Vector3,
+    exclude: RAPIER.Collider,
+    boom = CAMERA_DISTANCE,
+    lag = CAMERA_LAG,
+  ): void {
+    this.target.copy(lookAt);
     if (!this.initialised) {
       this.smoothedTarget.copy(this.target);
       this.initialised = true;
     } else {
       // Frame-rate independent exponential smoothing.
-      const blend = 1 - Math.exp(-frameDelta / CAMERA_LAG);
+      const blend = 1 - Math.exp(-frameDelta / lag);
       this.smoothedTarget.lerp(this.target, blend);
     }
 
@@ -74,7 +79,7 @@ export class FollowCamera {
       Math.cos(this.yaw) * cosPitch,
     );
 
-    const wanted = this.resolveDistance(exclude);
+    const wanted = this.resolveDistance(exclude, boom);
     if (wanted < this.distance) {
       this.distance = wanted;
     } else {
@@ -86,11 +91,11 @@ export class FollowCamera {
   }
 
   /** Sphere-cast from the look-at point out along the boom. */
-  private resolveDistance(exclude: RAPIER.Collider): number {
+  private resolveDistance(exclude: RAPIER.Collider, boom: number): number {
     const travel = {
-      x: this.offset.x * CAMERA_DISTANCE,
-      y: this.offset.y * CAMERA_DISTANCE,
-      z: this.offset.z * CAMERA_DISTANCE,
+      x: this.offset.x * boom,
+      y: this.offset.y * boom,
+      z: this.offset.z * boom,
     };
     const hit = this.physics.world.castShape(
       this.smoothedTarget,
@@ -104,13 +109,23 @@ export class FollowCamera {
       undefined,
       exclude,
     );
-    if (!hit) return CAMERA_DISTANCE;
-    return Math.max(CAMERA_MIN_DISTANCE, hit.time_of_impact * CAMERA_DISTANCE);
+    if (!hit) return boom;
+    return Math.max(CAMERA_MIN_DISTANCE, hit.time_of_impact * boom);
   }
 
   /** Heading movement input is resolved against. */
   get heading(): number {
     return this.yaw;
+  }
+
+  /** Drive the yaw externally — the drone turns with the mouse, not the camera. */
+  setYaw(yaw: number): void {
+    this.yaw = yaw;
+  }
+
+  /** Snap the follow target, so swapping which body you pilot does not smear. */
+  reset(): void {
+    this.initialised = false;
   }
 
   /** Current boom length. Shorter than CAMERA_DISTANCE means geometry is close. */

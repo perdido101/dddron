@@ -24,7 +24,9 @@ import {
   JUMP_IMPULSE,
   MAX_FALL_SPEED,
   MOVE_EPSILON,
+  PUSH_DECAY,
   RESPAWN_Y_THRESHOLD,
+  RUNNER_MASS,
   RUNNER_SPAWN,
   RUN_ACCEL,
   RUN_BOB_AMPLITUDE,
@@ -78,6 +80,8 @@ export class Runner {
   private readonly desired = new THREE.Vector3();
   private readonly leanAxis = new THREE.Vector3();
   private readonly lastMovement = new THREE.Vector3();
+  /** External shoves (prop wash). Decays on its own; not pilot input. */
+  private readonly push = new THREE.Vector3();
   /** Velocity the controller actually delivered, for lean, bob and facing. */
   private readonly realised = new THREE.Vector3();
 
@@ -141,6 +145,14 @@ export class Runner {
     this.figure.add(snout);
   }
 
+  /**
+   * Take an external force for one step — prop wash, and later throwables.
+   * Never lethal; it only displaces (brief, phase 2).
+   */
+  applyPush(force: THREE.Vector3, dt: number): void {
+    this.push.addScaledVector(force, dt / RUNNER_MASS);
+  }
+
   /** Latch a jump press. Buffered so it survives the gap between fixed steps. */
   queueJump(): void {
     this.jumpBufferTimer = JUMP_BUFFER_TIME;
@@ -150,6 +162,7 @@ export class Runner {
     const [x, y, z] = RUNNER_SPAWN;
     this.position.set(x, y, z);
     this.velocity.set(0, 0, 0);
+    this.push.set(0, 0, 0);
     this.body.setTranslation({ x, y, z }, true);
     this.transform.teleport(this.position);
   }
@@ -162,7 +175,10 @@ export class Runner {
     this.integrateHorizontal(dt, moveInput, cameraYaw);
     this.integrateVertical(dt);
 
-    this.desired.copy(this.velocity).multiplyScalar(dt);
+    // External pushes bleed off on their own and are additive to pilot intent,
+    // so being shoved never takes control away, it just moves you.
+    this.push.multiplyScalar(Math.exp(-PUSH_DECAY * dt));
+    this.desired.copy(this.velocity).add(this.push).multiplyScalar(dt);
     this.controller.computeColliderMovement(this.collider, this.desired);
     const movement = this.controller.computedMovement();
 

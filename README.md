@@ -11,12 +11,14 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 | Phase | Scope | State |
 | --- | --- | --- |
 | 0 | Scaffold, fixed-step Rapier, debug overlay | done |
-| 1 | Runner controller + grey-box arena | **done — awaiting FEEL GATE playtest** |
-| 2 | Drone controller | blocked on the phase 1 gate |
+| 1 | Runner controller + grey-box arena | done — feel gate passed |
+| 2 | Drone controller | **done — awaiting FEEL GATE playtest** |
 | 3–11 | Fuse loop, EMP, netcode, lobby, hazards, art, deploy | not started |
 
-Phase 1 ends in a feel gate. Nothing past it gets built until the runner feels
-good to a human, because everything downstream is worthless if it does not.
+Phases 1 and 2 each end in a feel gate. Nothing past a gate gets built until a
+human has played it, because everything downstream is worthless if the gates
+fail. Phase 2 is the highest-risk phase in the project: flying has to be
+funny-bad, not frustrating-bad, and that is not something a test can assert.
 
 ## Play it
 
@@ -44,11 +46,13 @@ Other scripts: `npm run typecheck` (all workspaces, strict), `npm run build`
 | Input | Action |
 | --- | --- |
 | Click canvas | Capture the mouse (pointer lock) |
-| WASD | Move, relative to the camera |
-| Space | Jump (coyote time + input buffering) |
-| Mouse | Look |
+| WASD | Move (runner: relative to camera; drone: relative to its own facing) |
+| Space | Jump / drone climb |
+| Shift | Drone descend |
+| Mouse | Look (runner) / turn the drone |
+| `C` | Swap between piloting the runner and the drone |
 | `~` | Debug overlay: fps, physics cost, body count, runner state |
-| `O` | Debug orbit camera (free-look around the arena) |
+| `O` | Free camera (inspect the arena, or either body, mid-build) |
 | `R` | Respawn the runner |
 | `B` | Re-drop the phase 0 test cube |
 
@@ -93,6 +97,13 @@ smooth without coupling simulation rate to frame rate. Frame deltas over
 slow frame from spiralling. This is also why a 30 s tab-away does not replay 30 s
 of physics on refocus.
 
+**Drone forces, not velocities.** Sacred constraint 1 forbids ever assigning the
+drone's velocity, so everything shaping its handling is a force on a dynamic
+body: thrust, the hover force that cancels its own weight, the soft altitude
+springs, and a permanent low-frequency wander. Its rigid-body rotation is locked
+and the tilt you see is cosmetic, driven by velocity — a freely tumbling
+quadcopter makes wall bounces unpredictable and stops reading as comic.
+
 **Intent velocity vs realised velocity.** The runner integrates its own velocity
 and hands a desired translation to Rapier's kinematic character controller. The
 controller's *returned* movement is deliberately **not** fed back into that
@@ -102,6 +113,28 @@ realised value; physics reads the intent.
 **Authority, for later phases.** Runner movement is client-authoritative by
 design (sacred constraint 5). The server will validate only battery, cores, EMP
 state, detonation and elimination. No rollback, no lag compensation.
+
+## Phase 2 verification
+
+Measured by driving the build in a browser. The last criterion is the one that
+matters most and is the one no test can settle — hence the gate.
+
+- Top speed reaches 9.03 m/s against the brief's `MAX_SPEED` of 9.0.
+- Tilt peaks at 24.8 deg at 8.93 m/s, under the 25 deg `TILT_MAX` cap.
+- Wall bonk: approached at 9.04 m/s, touched z = -29.03, rebounded to -24.31 —
+  a 4.72 m bounce.
+- Altitude band is soft, not clamped: holding Space overshoots `ALTITUDE_MAX` to
+  12.60 before the spring pulls it back; holding Shift dips to 0.90 under the
+  1.5 m floor and springs back to 1.8.
+- Drift after release: coasts 11.03 m, bleeding 7.96 -> 2.28 m/s. No hard stop.
+- Hands-off for 3 s it wanders 1.21 m, so it cannot be parked on a target.
+- Prop wash at 0.98 m separation shoves the runner 2.11 m and never harms it.
+
+**Open question for the playtest.** Is it entertaining for two minutes, or
+merely difficult? If it reads as frustrating, the levers in order of leverage
+are `DRONE_WANDER_ACCELERATION` (how much it fights you at rest),
+`DRONE_LINEAR_DAMPING` (how far it coasts — the brief caps this at 0.8), and
+`DRONE_ACCELERATION` (how fast it answers the stick).
 
 ## Phase 1 verification
 
@@ -131,6 +164,25 @@ shrinking the framebuffer to 320×180 takes the frame from 83 ms to 33 ms with
 costs 0.3–0.6 ms per frame. On real hardware this scene should sit at vsync with
 enormous headroom, but that needs confirming on your machine — which the feel gate
 playtest will do anyway.
+
+## Bugs found and fixed during phase 2
+
+1. **Rapier's `addForce` is persistent, not per-step.** It keeps applying every
+   step until `resetForces` is called, so the hover force compounded each tick
+   and the drone reached y = 2.9 million before the WASM panicked with an
+   `unreachable` trap. The reset is now the first thing each step does.
+2. **Restitution is averaged between colliders by default.** The arena's
+   colliders are 0, so `WALL_BOUNCE` of 0.45 was silently halved to 0.225 and
+   the bonk barely registered. The drone now uses the `Max` combine rule.
+3. **Top speed settled at 5.37 m/s instead of the brief's 9.0.** A smooth
+   thrust falloff cannot reach it: at 9 m/s the brief's own damping of 0.6 eats
+   5.4 of the 8.0 m/s^2 available. Thrust now cuts out at `MAX_SPEED` and
+   resumes below it, which caps speed without assigning velocity.
+4. **The drone could be parked.** With only the brief's damping it coasted to a
+   dead stop and stayed there, failing both sacred constraint 1 and the phase 2
+   criterion that holding a spot be difficult. It now carries a permanent slow
+   wander built from two incommensurate sines — deterministic, so clients will
+   still agree in phase 5.
 
 ## Bugs found and fixed during phase 1
 
