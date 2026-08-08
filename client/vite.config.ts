@@ -2,6 +2,9 @@ import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Relative asset URLs, so the same bundle works at a domain root and under a
+  // GitHub Pages project subpath without knowing the deploy path at build time.
+  base: './',
   resolve: {
     alias: {
       '@shared': fileURLToPath(new URL('../shared', import.meta.url)),

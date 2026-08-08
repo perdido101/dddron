@@ -1,0 +1,56 @@
+name: Playtest build
+
+# Publishes the current phase's client to GitHub Pages so the feel gates can be
+# played from a link instead of a local checkout. This is a playtest harness for
+# the client only — the real deploy story (Colyseus host, env-based server URL,
+# room caps, telemetry) is phase 11 and is deliberately not built yet.
+
+on:
+  push:
+    branches: [claude/buzzkill-game-build-1xye21]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; always let the newest one win.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # The brief's acceptance criteria include zero errors under strict mode,
+      # so a type error fails the deploy rather than shipping past it.
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
