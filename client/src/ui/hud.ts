@@ -6,6 +6,7 @@ import {
 } from '@shared/constants';
 
 import type { Fuse } from '../game/fuse';
+import type { ObjectiveStatus } from '../game/objective';
 
 /**
  * Battery readout.
@@ -20,6 +21,11 @@ export class Hud {
   private readonly readout: HTMLElement;
   private readonly status: HTMLElement;
   private readonly warning: HTMLElement;
+  private readonly objective: HTMLElement;
+  private readonly objectiveBar: HTMLElement;
+  private readonly prompt: HTMLElement;
+  private readonly flash: HTMLElement;
+  private readonly victory: HTMLElement;
 
   constructor(parent: HTMLElement = document.body) {
     this.root = document.createElement('div');
@@ -48,6 +54,56 @@ export class Hud {
     this.warning.id = 'hud-warning';
     this.warning.textContent = 'DETONATION IMMINENT';
     parent.appendChild(this.warning);
+
+    this.objective = document.createElement('div');
+    this.objective.id = 'hud-objective';
+    this.objective.innerHTML =
+      '<div class="hud-obj-text"></div><div class="hud-track"><div class="hud-obj-bar"></div></div>';
+    parent.appendChild(this.objective);
+    this.objectiveBar = this.objective.querySelector('.hud-obj-bar') as HTMLElement;
+
+    this.prompt = document.createElement('div');
+    this.prompt.id = 'hud-prompt';
+    parent.appendChild(this.prompt);
+
+    this.flash = document.createElement('div');
+    this.flash.id = 'hud-flash';
+    parent.appendChild(this.flash);
+
+    this.victory = document.createElement('div');
+    this.victory.id = 'hud-victory';
+    this.victory.textContent = 'EMP FIRED — RUNNERS WIN';
+    parent.appendChild(this.victory);
+  }
+
+  /**
+   * @param flash 0-1 of the screen-wide white pulse when the EMP fires.
+   */
+  updateObjective(status: ObjectiveStatus, flash: number): void {
+    const text = this.objective.querySelector('.hud-obj-text') as HTMLElement;
+    if (status.charging) {
+      text.textContent = status.fired
+        ? 'EMP DISCHARGED'
+        : `EMP CHARGING — ${(status.charge * 100).toFixed(0)}%  (${status.present}/${status.needed} in the zone)`;
+      this.objectiveBar.style.width = `${status.charge * 100}%`;
+    } else {
+      text.textContent = `POWER CORES  ${status.inserted}/${status.required}`;
+      this.objectiveBar.style.width = `${(status.inserted / status.required) * 100}%`;
+    }
+
+    // The hold prompt doubles as the progress readout for the hold itself.
+    if (status.prompt && !status.fired) {
+      this.prompt.style.display = 'block';
+      this.prompt.textContent = status.prompt;
+      this.prompt.style.background =
+        `linear-gradient(90deg, rgba(127,212,168,0.85) ${status.holdProgress * 100}%,` +
+        ` rgba(24,30,38,0.72) ${status.holdProgress * 100}%)`;
+    } else {
+      this.prompt.style.display = 'none';
+    }
+
+    this.flash.style.opacity = String(flash);
+    this.victory.style.display = status.fired && flash < 0.5 ? 'block' : 'none';
   }
 
   update(fuse: Fuse): void {

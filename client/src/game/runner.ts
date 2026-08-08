@@ -5,9 +5,11 @@ import {
   AIR_CONTROL,
   CAPSULE_HALF_HEIGHT,
   CAPSULE_RADIUS,
+  CARRY_SPEED,
   CEILING_BLOCK_EPSILON,
   COLOR_RUNNER,
   COLOR_RUNNER_HEAD,
+  CORE_DROP_PUSH,
   CONTROLLER_AUTOSTEP_HEIGHT,
   CONTROLLER_AUTOSTEP_MIN_WIDTH,
   CONTROLLER_MAX_SLOPE,
@@ -61,6 +63,8 @@ export class Runner {
   grounded = false;
   /** Eliminated runners stop simulating and vanish (phase 8 makes them gremlins). */
   alive = true;
+  /** Carrying a power core: slower, and no jumping (brief, phase 4). */
+  carrying = false;
 
   private readonly body: RAPIER.RigidBody;
   private readonly collider: RAPIER.Collider;
@@ -84,6 +88,8 @@ export class Runner {
   private readonly lastMovement = new THREE.Vector3();
   /** External shoves (prop wash). Decays on its own; not pilot input. */
   private readonly push = new THREE.Vector3();
+  /** Set by any external shove; the objective reads it to drop a carried core. */
+  private shoved = false;
   /** Velocity the controller actually delivered, for lean, bob and facing. */
   private readonly realised = new THREE.Vector3();
 
@@ -153,6 +159,27 @@ export class Runner {
    */
   applyPush(force: THREE.Vector3, dt: number): void {
     this.push.addScaledVector(force, dt / RUNNER_MASS);
+    // Only a real blast knocks a carried core loose. Without this threshold the
+    // faintest brush at the very edge of the wash counts, and a core can never
+    // be carried anywhere while the drone is on the same side of the arena.
+    if (force.length() >= CORE_DROP_PUSH) this.shoved = true;
+  }
+
+  /** True once per shove. Reading it clears the flag. */
+  consumeShoved(): boolean {
+    const was = this.shoved;
+    this.shoved = false;
+    return was;
+  }
+
+  /** Horizontal speed the controller actually delivered. */
+  get realisedSpeed(): number {
+    return Math.hypot(this.realised.x, this.realised.z);
+  }
+
+  /** Horizontal speed the player is ASKING for, ignoring external shoves. */
+  get intentSpeed(): number {
+    return Math.hypot(this.velocity.x, this.velocity.z);
   }
 
   /** Caught in a detonation. Never called by anything but the blast query. */
@@ -172,6 +199,8 @@ export class Runner {
     const [x, y, z] = RUNNER_SPAWN;
     this.alive = true;
     this.object.visible = true;
+    this.carrying = false;
+    this.shoved = false;
     this.position.set(x, y, z);
     this.velocity.set(0, 0, 0);
     this.push.set(0, 0, 0);
@@ -239,8 +268,9 @@ export class Runner {
     const control = this.grounded ? 1 : AIR_CONTROL;
     const rate = (hasInput ? RUN_ACCEL : RUN_DECEL) * control;
 
-    const targetX = this.wish.x * RUN_SPEED;
-    const targetZ = this.wish.z * RUN_SPEED;
+    const speed = this.carrying ? CARRY_SPEED : RUN_SPEED;
+    const targetX = this.wish.x * speed;
+    const targetZ = this.wish.z * speed;
     const deltaX = targetX - this.velocity.x;
     const deltaZ = targetZ - this.velocity.z;
     const distance = Math.hypot(deltaX, deltaZ);
@@ -254,6 +284,9 @@ export class Runner {
   private integrateVertical(dt: number): void {
     this.coyoteTimer = this.grounded ? COYOTE_TIME : Math.max(this.coyoteTimer - dt, 0);
     this.jumpBufferTimer = Math.max(this.jumpBufferTimer - dt, 0);
+
+    // Carrying a core means no jump at all — the core has to travel the long way.
+    if (this.carrying) this.jumpBufferTimer = 0;
 
     if (this.jumpBufferTimer > 0 && this.coyoteTimer > 0) {
       this.velocity.y = JUMP_IMPULSE;

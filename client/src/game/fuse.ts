@@ -60,6 +60,11 @@ export class Fuse {
     return 1 - Math.min(this.secondsRemaining / TELEGRAPH_TIME, 1);
   }
 
+  /** True when the drone has nowhere to dock because every pad is contested. */
+  get stranded(): boolean {
+    return this.state === 'returning' && this.targetPad === null;
+  }
+
   /** True while the drone answers the pilot at all. */
   get piloted(): boolean {
     return this.state === 'armed' || this.state === 'telegraph';
@@ -77,7 +82,12 @@ export class Fuse {
    * @param grounded whether the inert drone has hit the floor yet.
    * @returns a detonation event on the step the battery hits zero, else null.
    */
-  step(dt: number, dronePosition: THREE.Vector3, grounded: boolean): DetonationEvent | null {
+  step(
+    dt: number,
+    dronePosition: THREE.Vector3,
+    grounded: boolean,
+    availablePads: readonly (readonly [number, number])[] = CHARGE_PAD_POSITIONS,
+  ): DetonationEvent | null {
     switch (this.state) {
       case 'armed':
       case 'telegraph': {
@@ -94,12 +104,18 @@ export class Fuse {
         if (grounded) this.timer += dt;
         if (this.timer >= DRONE_INERT_TIME) {
           this.state = 'returning';
-          this.targetPad = this.nearestPad(dronePosition);
+          this.targetPad = this.nearestPad(dronePosition, availablePads);
         }
         return null;
       }
 
       case 'returning': {
+        // The contest rule can strand the drone: if a runner drops a core onto
+        // the pad it was heading for, it has to pick a different one, and if
+        // every pad is blocked it loiters with nowhere to recharge.
+        if (!this.targetPad || !availablePads.some((pad) => samePad(pad, this.targetPad))) {
+          this.targetPad = availablePads.length > 0 ? this.nearestPad(dronePosition, availablePads) : null;
+        }
         if (this.docked(dronePosition)) {
           this.state = 'recharging';
           this.timer = 0;
@@ -145,10 +161,13 @@ export class Fuse {
    * a pad holding a power core cannot be docked on — and this is where that
    * filter goes.
    */
-  private nearestPad(position: THREE.Vector3): readonly [number, number] {
-    let best: readonly [number, number] = CHARGE_PAD_POSITIONS[0];
+  private nearestPad(
+    position: THREE.Vector3,
+    pads: readonly (readonly [number, number])[],
+  ): readonly [number, number] {
+    let best: readonly [number, number] = pads[0] ?? CHARGE_PAD_POSITIONS[0];
     let bestDistance = Infinity;
-    for (const pad of CHARGE_PAD_POSITIONS) {
+    for (const pad of pads) {
       const distance = Math.hypot(position.x - pad[0], position.z - pad[1]);
       if (distance < bestDistance) {
         bestDistance = distance;
@@ -162,6 +181,13 @@ export class Fuse {
   get rechargeRemaining(): number {
     return this.state === 'recharging' ? Math.max(0, RECHARGE_TIME - this.timer) : 0;
   }
+}
+
+function samePad(
+  a: readonly [number, number],
+  b: readonly [number, number] | null,
+): boolean {
+  return b !== null && a[0] === b[0] && a[1] === b[1];
 }
 
 /** Everything the detonation can eliminate. */

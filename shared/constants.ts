@@ -443,6 +443,56 @@ export const CORE_PICKUP_HOLD = 1.5;
 export const CORE_RADIUS = 0.35;
 /** unspecified. Height a carried core floats above the runner's head. */
 export const CORE_CARRY_HEIGHT = 0.8;
+/** unspecified. A core within this of a pad centre counts as sitting on it. */
+export const CORE_ON_PAD_RADIUS = 2.2;
+/** unspecified. Moving faster than this cancels a hold-to-interact. */
+export const INTERACT_MOVE_CANCEL_SPEED = 0.6;
+/**
+ * unspecified. Wash force needed to knock a carried core loose. Prop wash falls
+ * off to nothing at the edge of its radius, so without a threshold the faintest
+ * brush drops the core and carrying one anywhere becomes impossible. At 5.0 of
+ * PROP_WASH_FORCE's 12.0 the drone has to be genuinely overhead.
+ */
+export const CORE_DROP_PUSH = 5.0;
+/** unspecified. Core bob, so an unheld core reads as pickup-able. */
+export const CORE_BOB_HEIGHT = 0.18;
+export const CORE_BOB_HZ = 0.55;
+export const CORE_SPIN_RATE = 1.1;
+export const COLOR_CORE = 0xffd166;
+export const COLOR_CORE_CARRIED = 0xfff3b0;
+
+/** unspecified. White screen pulse when the EMP fires. */
+export const EMP_FLASH_TIME = 1.1;
+export const EMP_FLASH_COLOR = 0xffffff;
+
+// ---------------------------------------------------------------------------
+// SCRIPTED DRONE (phase 4 — pressure-tests the objective, nothing more)
+// ---------------------------------------------------------------------------
+
+/** Drifts toward the nearest runner inside this radius. No pathfinding. */
+export const AI_CHASE_RADIUS = 20.0;
+/** unspecified. Distance at which a patrol waypoint counts as reached. */
+export const AI_WAYPOINT_RADIUS = 4.0;
+/** unspecified. Altitude the scripted drone tries to hold while patrolling. */
+export const AI_PATROL_ALTITUDE = 4.0;
+/** unspecified. Altitude it drops to when hunting, so its blast can reach. */
+export const AI_ATTACK_ALTITUDE = 1.4;
+/**
+ * unspecified. Patrol circuit: [x, z]. Deliberately dumb — a loop of points.
+ *
+ * Routed around the charge pads and NOT through the arena centre. A waypoint on
+ * the EMP station makes the scripted drone camp the objective, and with a 3 s
+ * insert hold that alone makes the runner win condition unreachable. Patrolling
+ * where the cores are is pressure; sitting on the station is a lock-out.
+ */
+export const AI_WAYPOINTS = [
+  [0.0, -18.0],
+  [17.0, -6.0],
+  [15.6, 9.0],
+  [0.0, 15.0],
+  [-15.6, 9.0],
+  [-17.0, -6.0],
+] as const;
 
 /** derived. Runners required in the station zone for the current alive count. */
 export function empChargeMinPresent(aliveRunners: number): number {
@@ -575,3 +625,44 @@ export const DEBUG_SAMPLE_FRAMES = 30;
 /** Phase 0 acceptance: a dropped cube that falls, lands and comes to rest. */
 export const TEST_CUBE_SIZE = 0.8;
 export const TEST_CUBE_SPAWN = [3.0, 9.0, 6.0] as const;
+
+// ---------------------------------------------------------------------------
+// ADD-ON MODULE 01 — DRONE FPV CAMERA
+//
+// Presentation only. Nothing here reads or writes authoritative state, and the
+// flight model is untouched: the drone flies identically in both camera modes.
+// ---------------------------------------------------------------------------
+
+/** Mount point on the drone body: forward 0.35 m, up 0.1 m. */
+export const FPV_CAMERA_OFFSET = [0.0, 0.1, 0.35] as const;
+/** Matches the third-person FOV — no field-of-view penalty for flying FPV. */
+export const FPV_FOV = 90;
+/** Hold longer than this to peek; a shorter tap latches the toggle. */
+export const FPV_TOGGLE_HOLD_MS = 400;
+export const FPV_TRANSITION_MS = 180;
+export const FPV_SHAKE_VELOCITY_MULT = 0.02;
+export const FPV_SHAKE_RPM_MULT = 0.008;
+export const FPV_AUDIO_CROSSFADE_MS = 200;
+
+/**
+ * Feed treatment. Restrained by default: the arena is pastel and has to stay
+ * readable, so this should say "obviously a camera feed" at a glance rather
+ * than "broken television". Every effect is individually dial-able to zero.
+ */
+export const FPV_BARREL_DISTORTION = 0.18;
+export const FPV_CHROMATIC_ABERRATION = 0.004;
+export const FPV_SCANLINE_OPACITY = 0.06;
+export const FPV_VIGNETTE = 0.35;
+export const FPV_SENSOR_NOISE = 0.04;
+export const FPV_ROLLING_SHUTTER = 0.12;
+export const FPV_BLOOM_BOOST = 1.2;
+/** Cyan lift in the shadows — the cheap-sensor look. */
+export const FPV_SHADOW_TINT = [0.0, 0.045, 0.06] as const;
+/** Scanline density, in lines across the vertical resolution. */
+export const FPV_SCANLINE_DENSITY = 620;
+
+/** The telegraph roughly doubles noise and skew. Atmosphere, not information. */
+export const FPV_TELEGRAPH_EFFECT_MULT = 2.0;
+
+/** localStorage key for the camera-mode preference. */
+export const FPV_STORAGE_KEY = 'buzzkill.fpv';

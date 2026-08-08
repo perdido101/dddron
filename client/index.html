@@ -114,6 +114,102 @@
         pointer-events: none;
         z-index: 12;
       }
+      #fpv {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 11;
+        color: #dff6ff;
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
+      .fpv-corner {
+        position: absolute;
+        width: 30px;
+        height: 30px;
+        border: 2px solid rgba(223, 246, 255, 0.65);
+      }
+      .fpv-corner.tl { top: 22px; left: 22px; border-right: 0; border-bottom: 0; }
+      .fpv-corner.tr { top: 22px; right: 22px; border-left: 0; border-bottom: 0; }
+      .fpv-corner.bl { bottom: 22px; left: 22px; border-right: 0; border-top: 0; }
+      .fpv-corner.br { bottom: 22px; right: 22px; border-left: 0; border-top: 0; }
+      .fpv-battery { position: absolute; top: 34px; left: 40px; line-height: 1; }
+      .fpv-batt-value { font-size: 40px; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .fpv-batt-value.critical { color: #ff6070; animation: fpvflash 0.35s steps(2, end) infinite; }
+      .fpv-batt-label { font-size: 11px; letter-spacing: 0.24em; opacity: 0.75; margin-left: 6px; }
+      .fpv-right { position: absolute; top: 34px; right: 40px; text-align: right; font-size: 13px; }
+      .fpv-rec { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 6px; }
+      .fpv-dot { width: 9px; height: 9px; border-radius: 50%; background: #ff4d5e; animation: fpvflash 1s ease-in-out infinite; }
+      .fpv-alt, .fpv-spd { font-variant-numeric: tabular-nums; opacity: 0.9; }
+      .fpv-horizon { position: absolute; top: 50%; left: 50%; width: 220px; height: 2px; transform: translate(-50%, -50%); }
+      .fpv-horizon i { position: absolute; top: 50%; left: 50%; display: block; width: 220px; height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(223, 246, 255, 0.75) 20%, rgba(223, 246, 255, 0.75) 80%, transparent); }
+      .fpv-crosshair { position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%);
+        border: 1px solid rgba(223, 246, 255, 0.55); border-radius: 50%; }
+      .fpv-lowpower { position: absolute; top: 96px; left: 40px; display: none; padding: 3px 10px;
+        background: #ff4d5e; color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; }
+      @keyframes fpvflash { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.25; } }
+      #hud-objective {
+        position: fixed;
+        left: 50%;
+        bottom: 64px;
+        transform: translateX(-50%);
+        width: 300px;
+        padding: 8px 14px 10px;
+        border-radius: 10px;
+        background: rgba(24, 30, 38, 0.72);
+        color: #eef6ff;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-align: center;
+        pointer-events: none;
+        z-index: 12;
+      }
+      .hud-obj-bar {
+        height: 100%;
+        width: 0;
+        border-radius: 99px;
+        background: #9ba8f0;
+        transition: width 0.15s linear;
+      }
+      #hud-prompt {
+        position: fixed;
+        left: 50%;
+        bottom: 130px;
+        transform: translateX(-50%);
+        display: none;
+        padding: 7px 16px;
+        border-radius: 99px;
+        color: #fff;
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        pointer-events: none;
+        z-index: 12;
+      }
+      #hud-flash {
+        position: fixed;
+        inset: 0;
+        background: #fff;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 30;
+      }
+      #hud-victory {
+        position: fixed;
+        top: 42%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        display: none;
+        padding: 14px 34px;
+        border-radius: 12px;
+        background: rgba(155, 168, 240, 0.95);
+        color: #fff;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        pointer-events: none;
+        z-index: 31;
+      }
       #boot {
         position: fixed;
         inset: 0;

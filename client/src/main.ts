@@ -3,13 +3,16 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 import {
   ARENA_SIZE,
-  FIXED_TIMESTEP,
   CAMERA_DISTANCE,
   CAMERA_TARGET_HEIGHT,
   DRONE_CAMERA_DISTANCE,
   DRONE_CAMERA_HEIGHT,
   DRONE_CAMERA_LAG,
+  EMP_FLASH_TIME,
+  FIXED_TIMESTEP,
   FOOT_OFFSET,
+  FPV_STORAGE_KEY,
+  FPV_TOGGLE_HOLD_MS,
 } from '@shared/constants';
 
 import { PropWhine } from './engine/audio';
@@ -18,12 +21,16 @@ import { Input } from './engine/input';
 import { Physics } from './engine/physics';
 import { View } from './engine/view';
 import { Arena } from './game/arena';
+import { Autopilot } from './game/autopilot';
 import { Confetti } from './game/confetti';
 import { Drone } from './game/drone';
 import { FollowCamera } from './game/followCamera';
+import { FpvFeed } from './game/fpv';
 import { Fuse, applyBlast } from './game/fuse';
+import { Objective } from './game/objective';
 import { Runner } from './game/runner';
 import { TestCube } from './game/testCube';
+import { FpvOverlay } from './ui/fpvOverlay';
 import { Hud } from './ui/hud';
 
 const KEY_FORWARD = 'KeyW';
@@ -38,6 +45,8 @@ const KEY_ORBIT = 'KeyO';
 const KEY_SWAP = 'KeyC';
 const KEY_RESPAWN = 'KeyR';
 const KEY_DROP_CUBE = 'KeyB';
+const KEY_INTERACT = 'KeyE';
+const KEY_FPV = 'KeyV';
 
 /** Which body the player is currently piloting. */
 type Pilot = 'runner' | 'drone';
@@ -61,6 +70,14 @@ async function boot(): Promise<void> {
   const confetti = new Confetti(view.scene);
   const hud = new Hud();
   const whine = new PropWhine();
+  const objective = new Objective(view.scene);
+  const autopilot = new Autopilot();
+  const fpv = new FpvFeed(view.renderer);
+  const fpvOverlay = new FpvOverlay();
+  fpv.attachTo(drone.chassisObject);
+  const sizeFpv = (): void => fpv.resize(window.innerWidth, window.innerHeight);
+  sizeFpv();
+  window.addEventListener('resize', sizeFpv);
 
   // Browsers will not start audio without a gesture, and the prop whine is a
   // mechanic rather than polish, so wire it to the first interaction there is.
@@ -89,6 +106,15 @@ async function boot(): Promise<void> {
 
   let pilot: Pilot = 'runner';
   let orbitMode = false;
+  let interactHeld = false;
+  let roundClock = 0;
+  let empFlash = 0;
+  const runners = [runner];
+
+  // FPV mode: a tap latches the toggle, a hold peeks and reverts on release.
+  let fpvMode = window.localStorage.getItem(FPV_STORAGE_KEY) === '1';
+  let fpvPressedAt = 0;
+  let fpvBeforePeek = fpvMode;
 
   function setHint(): void {
     if (!hintElement) return;
@@ -99,17 +125,29 @@ async function boot(): Promise<void> {
   setHint();
 
   physics.onFixedStep((dt) => {
-    // Both bodies always simulate; only the piloted one receives input. That is
-    // what lets you park the drone, swap to the runner, and walk into its wash.
+    roundClock += dt;
+
+    // Both bodies always simulate. When the player is on foot the drone is
+    // flown by the phase 4 script, so the objective always has pressure on it.
     runner.fixedUpdate(dt, moveInput, camera.heading);
-    drone.fixedUpdate(dt, droneInput, washTargets, fuse);
+
+    const flown = pilot === 'drone' ? droneInput : autopilot.update(drone.position, runners);
+    if (pilot !== 'drone' && fuse.piloted) drone.steerTowards(autopilot.yaw, dt);
+    drone.fixedUpdate(dt, flown, washTargets, fuse);
 
     // The battery is the only thing that can trigger a detonation — sacred
     // constraint 2 — so the blast is a consequence of this step, not an action.
-    const detonation = fuse.step(dt, drone.position, drone.settled);
+    const detonation = fuse.step(dt, drone.position, drone.settled, objective.availablePads());
     if (detonation) {
-      applyBlast(detonation.position, [runner]);
+      applyBlast(detonation.position, runners);
       confetti.burst(detonation.position);
+    }
+
+    objective.step(dt, runners, interactHeld);
+    if (objective.fired && empFlash === 0) {
+      // Runners win the moment the EMP fires. The drone drops dead.
+      empFlash = EMP_FLASH_TIME;
+      drone.kill();
     }
   });
   physics.onFixedPostStep(() => {
@@ -150,12 +188,24 @@ async function boot(): Promise<void> {
       }
       setHint();
     }
+    if (input.consumePress(KEY_FPV)) {
+      fpvBeforePeek = fpvMode;
+      fpvPressedAt = now;
+      fpvMode = !fpvMode;
+    }
+    if (fpvPressedAt > 0 && !input.isHeld(KEY_FPV)) {
+      // Held long enough to count as a peek: snap back to where we were.
+      if (now - fpvPressedAt >= FPV_TOGGLE_HOLD_MS) fpvMode = fpvBeforePeek;
+      fpvPressedAt = 0;
+      window.localStorage.setItem(FPV_STORAGE_KEY, fpvMode ? '1' : '0');
+    }
     if (input.consumePress(KEY_RESPAWN)) runner.respawn();
     if (input.consumePress(KEY_DROP_CUBE)) testCube.drop();
 
     moveInput.set(0, 0);
     droneInput.move.set(0, 0);
     droneInput.lift = 0;
+    interactHeld = !orbitMode && pilot === 'runner' && input.isHeld(KEY_INTERACT);
 
     if (!orbitMode) {
       const strafe = (input.isHeld(KEY_RIGHT) ? 1 : 0) - (input.isHeld(KEY_LEFT) ? 1 : 0);
@@ -193,6 +243,20 @@ async function boot(): Promise<void> {
       !fuse.piloted && fuse.state !== 'returning',
     );
 
+    const showFpv = pilot === 'drone' && fpvMode && !orbitMode;
+    fpv.update(frameDelta, drone.velocity, drone.yawRate, drone.throttleLevel, fuse.telegraphProgress, showFpv);
+    fpvOverlay.setVisible(fpv.visible);
+    if (fpv.visible) {
+      fpvOverlay.update(
+        fuse,
+        drone.position.y,
+        drone.speed,
+        drone.pitchAngle,
+        drone.rollAngle,
+        roundClock,
+      );
+    }
+
     if (orbitMode) {
       orbit.update();
     } else if (pilot === 'runner') {
@@ -218,19 +282,29 @@ async function boot(): Promise<void> {
       `sim clock    ${(physics.totalSteps * FIXED_TIMESTEP).toFixed(2)}s  (${physics.totalSteps} steps)`,
       `fuse         ${fuse.state}  cycle ${fuse.cycle + 1}  charge ${(fuse.charge * 100).toFixed(1)}%` +
         `  ${fuse.secondsRemaining.toFixed(1)}s left`,
-      `runner       ${runner.alive ? 'alive' : 'ELIMINATED'}   audio ${whine.running ? 'on' : 'off (click)'}`,
+      `runner       ${runner.alive ? 'alive' : 'ELIMINATED'}${runner.carrying ? ' CARRYING' : ''}` +
+        `   audio ${whine.running ? 'on' : 'off (click)'}`,
+      `objective    cores ${objective.status().inserted}/${objective.status().required}` +
+        `  charge ${(objective.charge * 100).toFixed(1)}%` +
+        `  in zone ${objective.status().present}/${objective.status().needed}` +
+        `${objective.fired ? '  EMP FIRED — RUNNERS WIN' : ''}`,
+      `pads free    ${objective.availablePads().length}/3   camera ${fpvMode && pilot === 'drone' ? 'FPV' : 'chase'}`,
       ...runner.debugLines(),
       ...drone.debugLines(),
       `cube y       ${testCube.height.toFixed(2)}  ${testCube.isAsleep ? '(asleep)' : '(awake)'}`,
       `camera       boom ${camera.boomLength.toFixed(2)} / ${CAMERA_DISTANCE.toFixed(1)} m`,
       `draw calls   ${view.renderer.info.render.calls}   tris ${view.renderer.info.render.triangles}`,
       '',
-      'C swap pilot · R respawn runner · B drop cube · O free cam · ~ overlay',
+      'E interact · C swap pilot · V FPV · R respawn · B drop cube · O free cam',
     ]);
     overlay.update(frameDelta, physics);
 
+    if (empFlash > 0) empFlash = Math.max(0, empFlash - frameDelta);
+    hud.updateObjective(objective.status(), empFlash / EMP_FLASH_TIME);
+
     input.endFrame();
-    view.render();
+    if (fpv.visible) fpv.render(view.scene);
+    else view.render();
     requestAnimationFrame(frame);
   }
 

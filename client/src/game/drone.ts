@@ -55,8 +55,8 @@ import type { Fuse } from './fuse';
 export interface DroneInput {
   /** x = strafe, y = forward, each in [-1, 1]. Relative to the drone's facing. */
   readonly move: THREE.Vector2;
-  /** +1 climb (Space), -1 descend (Shift). */
-  readonly lift: number;
+  /** +1 climb (Space), -1 descend (Shift). Authored by a human or the script. */
+  lift: number;
 }
 
 /**
@@ -89,6 +89,9 @@ export class Drone {
 
   private tiltPitch = 0;
   private tiltRoll = 0;
+  private previousYaw = 0;
+  private yawRateValue = 0;
+  private dead = false;
   private rotorPhase = 0;
   private throttle = 0;
   private wanderClock = 0;
@@ -175,6 +178,42 @@ export class Drone {
     this.yaw -= deltaX * DRONE_YAW_SENSITIVITY;
   }
 
+  /** Turn toward a heading. Used by the scripted pilot, never by a human. */
+  steerTowards(targetYaw: number, dt: number): void {
+    let delta = (targetYaw - this.yaw) % (Math.PI * 2);
+    if (delta > Math.PI) delta -= Math.PI * 2;
+    if (delta < -Math.PI) delta += Math.PI * 2;
+    this.yaw += THREE.MathUtils.clamp(delta, -AI_TURN_RATE * dt, AI_TURN_RATE * dt);
+  }
+
+  /** The EMP fired. The drone is permanently dead — this is the runners' win. */
+  kill(): void {
+    this.dead = true;
+    this.material.emissive.setHex(0);
+  }
+
+  get isDead(): boolean {
+    return this.dead;
+  }
+
+  /** The tilting body, which the FPV camera bolts onto. */
+  get chassisObject(): THREE.Object3D {
+    return this.chassis;
+  }
+
+  /** Radians per second of turn, which is what skews a cheap rolling shutter. */
+  get yawRate(): number {
+    return this.yawRateValue;
+  }
+
+  get pitchAngle(): number {
+    return this.tiltPitch;
+  }
+
+  get rollAngle(): number {
+    return this.tiltRoll;
+  }
+
   /**
    * One fixed step of piloting. Call before the world steps.
    *
@@ -186,6 +225,7 @@ export class Drone {
     runners: readonly PropWashTarget[],
     fuse: Fuse,
   ): void {
+    void dt;
     // Rapier's addForce is PERSISTENT: it keeps applying every step until the
     // accumulator is cleared. Without this reset the hover force compounds each
     // tick and the drone leaves the arena at absurd speed.
@@ -194,6 +234,12 @@ export class Drone {
     const linvel = this.body.linvel();
     this.velocity.set(linvel.x, linvel.y, linvel.z);
     this.force.set(0, 0, 0);
+
+    if (this.dead) {
+      // Dead weight. Gravity is the only thing acting on it now.
+      this.throttle = 0;
+      return;
+    }
 
     if (fuse.piloted) {
       this.applyHorizontalThrust(input);
@@ -211,7 +257,12 @@ export class Drone {
       this.applyReturnAutopilot(fuse);
       this.throttle = DRONE_RETURN_SPEED_MULT;
       this.body.addForce(this.force, true);
-      this.applyPropWash(dt, runners);
+      // NO prop wash while limping home. The drone always returns to a pad a
+      // runner has just cleared, so a live wash on the return leg means it
+      // lands on top of whoever took the core, knocks it out of their hands,
+      // and the core drops straight back onto the pad -- blocking the very pad
+      // the drone was flying to. That deadlocks both sides. On emergency power
+      // it is a vulnerable object, not a weapon.
       return;
     }
 
@@ -322,15 +373,20 @@ export class Drone {
     const origin = this.body.translation();
     for (const target of targets) {
       const dx = target.position.x - origin.x;
+      const dy = target.position.y - origin.y;
       const dz = target.position.z - origin.z;
-      const distance = Math.hypot(dx, dz);
+      // 3-D distance, not horizontal: a drone up at the ceiling must NOT be
+      // able to shove someone on the floor. It has to commit to coming down.
+      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (distance > PROP_WASH_RADIUS) continue;
 
       const falloff = 1 - distance / PROP_WASH_RADIUS;
-      // Directly underneath, there is no radial direction to push along; nudge
-      // outward along the drone's facing instead of dividing by zero.
-      const nx = distance > 1e-3 ? dx / distance : Math.sin(this.yaw);
-      const nz = distance > 1e-3 ? dz / distance : Math.cos(this.yaw);
+      // The shove itself is horizontal — it blows runners outward from under
+      // the rotors. Directly underneath there is no radial direction, so nudge
+      // along the drone's facing rather than dividing by zero.
+      const flat = Math.hypot(dx, dz);
+      const nx = flat > 1e-3 ? dx / flat : Math.sin(this.yaw);
+      const nz = flat > 1e-3 ? dz / flat : Math.cos(this.yaw);
 
       this.wash.set(
         nx * PROP_WASH_FORCE * falloff,
@@ -350,7 +406,15 @@ export class Drone {
 
   render(alpha: number, frameDelta: number, telegraph = 0): void {
     this.transform.readPosition(this.object.position, alpha);
-    this.renderTelegraph(frameDelta, telegraph);
+    this.renderTelegraph(frameDelta, this.dead ? 0 : telegraph);
+
+    if (frameDelta > 0) {
+      let delta = (this.yaw - this.previousYaw) % (Math.PI * 2);
+      if (delta > Math.PI) delta -= Math.PI * 2;
+      if (delta < -Math.PI) delta += Math.PI * 2;
+      this.yawRateValue = delta / frameDelta;
+      this.previousYaw = this.yaw;
+    }
 
     // Tilt follows velocity, capped at TILT_MAX, and is eased so a bounce does
     // not snap the body around.
@@ -426,6 +490,9 @@ export class Drone {
     ];
   }
 }
+
+/** How fast the scripted pilot may swing the drone around, in rad/s. */
+const AI_TURN_RATE = 2.2;
 
 /** Vertical speed below which a falling drone counts as landed. */
 const SETTLED_SPEED = 0.5;
