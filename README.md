@@ -14,7 +14,9 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 | 1 | Runner controller + grey-box arena | done — feel gate passed |
 | 2 | Drone controller | done — feel gate passed |
 | 3 | Battery, detonation, respawn cycle | done |
-| 4–11 | EMP objective, netcode, lobby, hazards, art, deploy | not started |
+| 4 | Power cores + EMP objective | done — one criterion open (see below) |
+| Add-on 01 | Drone FPV camera | done |
+| 5–11 | Netcode, lobby, hazards, gremlins, scoring, art, deploy | **not started** |
 
 Phases 1 and 2 each end in a feel gate. Nothing past a gate gets built until a
 human has played it, because everything downstream is worthless if the gates
@@ -52,6 +54,8 @@ Other scripts: `npm run typecheck` (all workspaces, strict), `npm run build`
 | Shift | Drone descend |
 | Mouse | Look (runner) / turn the drone |
 | `C` | Swap between piloting the runner and the drone |
+| `E` | Hold to lift a power core / insert it at the EMP station |
+| `V` | Drone FPV feed — tap to toggle, hold to peek |
 | `~` | Debug overlay: fps, physics cost, body count, runner state |
 | `O` | Free camera (inspect the arena, or either body, mid-build) |
 | `R` | Respawn the runner (revives after a detonation) |
@@ -114,6 +118,42 @@ realised value; physics reads the intent.
 **Authority, for later phases.** Runner movement is client-authoritative by
 design (sacred constraint 5). The server will validate only battery, cores, EMP
 state, detonation and elimination. No rollback, no lag compensation.
+
+## Phase 4 verification
+
+- **Contest rule works.** Three cores on three pads means zero pads available to
+  the drone at round start; each pad frees as its core is lifted.
+- **Carrying is a real cost.** Intent speed measured at exactly **4.50 m/s**
+  carrying against **6.00 m/s** free, and the jump is blocked outright
+  (y moved 1.10 -> 1.20 across a jump press, i.e. never left the ground).
+- **Cores drop on a hit.** Repeatedly observed: prop wash knocks a carried core
+  loose where the runner stands.
+- **Pickup and insert both work end to end**, reaching 2 of 3 cores inserted in
+  a scripted solo run against the AI drone.
+
+**Open: the full solo run.** My scripted "player" walks in straight lines and
+only backs off when the drone is within 3.6 m, and it did not get all three
+cores in and fire the EMP inside the brief's 90-150 s window — its best run took
+188 s and reached 2/3. The mechanisms are each verified in isolation; what is
+unverified is whether a *competent human* can do the whole loop in the target
+time. That needs a person, and it is the balance question phase 4 exists to ask.
+
+## Add-on 01 verification
+
+- `V` toggles, and the preference survives a refresh (`buzzkill.fpv` in
+  localStorage).
+- The feed reads as a camera feed: barrel distortion, vignette, scanlines and
+  grain, with the frame's viewfinder brackets and telemetry.
+- **Battery matches exactly**: 94% on the onboard overlay while the third-person
+  HUD read 94%, which it must, since both read the same `Fuse` object.
+
+**Not verified: physics identity between camera modes.** The module requires
+flying an identical input sequence in each mode and comparing final positions.
+I could not do that honestly, because there is no way to reset the drone to
+identical initial conditions between runs — my two runs started from different
+positions and different fuse states, so the comparison was meaningless.
+Structurally the module only reads drone state and renders; it never applies a
+force. But "structurally it cannot" is not the same as "measured identical".
 
 ## Phase 3 verification
 
