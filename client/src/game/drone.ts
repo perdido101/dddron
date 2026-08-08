@@ -11,6 +11,10 @@ import {
   DRONE_ACCELERATION,
   DRONE_ANGULAR_DAMPING,
   DRONE_BODY_HEIGHT,
+  DRONE_DOCK_HEIGHT,
+  DRONE_RETURN_ACCELERATION,
+  DRONE_RETURN_ALTITUDE,
+  DRONE_RETURN_SPEED_MULT,
   DRONE_FRICTION,
   DRONE_HOVER_COMPENSATION,
   DRONE_LINEAR_DAMPING,
@@ -34,6 +38,9 @@ import {
   ROTOR_SPIN_IDLE,
   ROTOR_SPIN_MAX,
   ROTOR_THICKNESS,
+  TELEGRAPH_COLOR,
+  TELEGRAPH_PULSE_HZ_END,
+  TELEGRAPH_PULSE_HZ_START,
   TILT_FULL_SPEED,
   TILT_MAX,
   TILT_RESPONSE,
@@ -42,6 +49,7 @@ import {
 
 import { InterpolatedTransform } from '../engine/interpolation';
 import type { Physics } from '../engine/physics';
+import type { Fuse } from './fuse';
 
 /** What the pilot is asking for this step. */
 export interface DroneInput {
@@ -76,6 +84,8 @@ export class Drone {
   private readonly transform: InterpolatedTransform;
   private readonly chassis = new THREE.Group();
   private readonly rotors: THREE.Mesh[] = [];
+  private readonly material = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
+  private telegraphClock = 0;
 
   private tiltPitch = 0;
   private tiltRoll = 0;
@@ -117,7 +127,7 @@ export class Drone {
   }
 
   private buildVisual(): void {
-    const material = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
+    const material = this.material;
 
     const hull = new THREE.Mesh(
       new THREE.CylinderGeometry(DRONE_RADIUS, DRONE_RADIUS * 0.82, DRONE_BODY_HEIGHT, CYLINDER_SEGMENTS),
@@ -170,7 +180,12 @@ export class Drone {
    *
    * @param runners bodies to shove with prop wash.
    */
-  fixedUpdate(dt: number, input: DroneInput, runners: readonly PropWashTarget[]): void {
+  fixedUpdate(
+    dt: number,
+    input: DroneInput,
+    runners: readonly PropWashTarget[],
+    fuse: Fuse,
+  ): void {
     // Rapier's addForce is PERSISTENT: it keeps applying every step until the
     // accumulator is cleared. Without this reset the hover force compounds each
     // tick and the drone leaves the arena at absurd speed.
@@ -180,18 +195,63 @@ export class Drone {
     this.velocity.set(linvel.x, linvel.y, linvel.z);
     this.force.set(0, 0, 0);
 
-    this.applyHorizontalThrust(input);
-    this.applyVerticalThrust(input);
-    this.applyAltitudeSpring();
-    this.applyWander(dt);
+    if (fuse.piloted) {
+      this.applyHorizontalThrust(input);
+      this.applyVerticalThrust(input);
+      this.applyAltitudeSpring();
+      this.applyWander(dt);
+      this.throttle = Math.min(Math.hypot(input.move.x, input.move.y) + Math.abs(input.lift), 1);
+      this.body.addForce(this.force, true);
+      // Prop wash only exists while the rotors are turning.
+      this.applyPropWash(dt, runners);
+      return;
+    }
 
-    this.body.addForce(this.force, true);
-    this.applyPropWash(dt, runners);
+    if (fuse.state === 'returning') {
+      this.applyReturnAutopilot(fuse);
+      this.throttle = DRONE_RETURN_SPEED_MULT;
+      this.body.addForce(this.force, true);
+      this.applyPropWash(dt, runners);
+      return;
+    }
 
-    this.throttle = Math.min(
-      Math.hypot(input.move.x, input.move.y) + Math.abs(input.lift),
-      1,
-    );
+    // Inert or docked: no rotors, no lift, no wash. It is dead weight that
+    // falls, and a sitting target once it is on the pad.
+    this.throttle = 0;
+  }
+
+  /**
+   * Flies itself back to a charge pad at reduced speed after a detonation.
+   * Proportional steering, no pathfinding — it will bonk off things on the way,
+   * which is the point.
+   */
+  private applyReturnAutopilot(fuse: Fuse): void {
+    const pad = fuse.pad;
+    if (!pad) return;
+    const position = this.body.translation();
+    const [padX, padZ] = pad;
+
+    const dx = padX - position.x;
+    const dz = padZ - position.z;
+    const distance = Math.hypot(dx, dz);
+
+    // Hold a safe altitude until roughly overhead, then settle onto the pad.
+    const targetY = distance > DRONE_DOCK_HEIGHT * 2 ? DRONE_RETURN_ALTITUDE : DRONE_DOCK_HEIGHT;
+    const accel = DRONE_RETURN_ACCELERATION * DRONE_RETURN_SPEED_MULT;
+
+    if (distance > 1e-3) {
+      this.force.x += (dx / distance) * accel * DRONE_MASS;
+      this.force.z += (dz / distance) * accel * DRONE_MASS;
+    }
+    this.force.y +=
+      (-GRAVITY + (targetY - position.y) * ALTITUDE_SPRING - this.velocity.y * ALTITUDE_SPRING_DAMPING) *
+      DRONE_MASS *
+      DRONE_HOVER_COMPENSATION;
+  }
+
+  /** True once the falling drone has settled, so the inert timer can start. */
+  get settled(): boolean {
+    return Math.abs(this.velocity.y) < SETTLED_SPEED;
   }
 
   /**
@@ -246,6 +306,7 @@ export class Drone {
    * always creeps. Deterministic, so two clients agree.
    */
   private applyWander(dt: number): void {
+    if (DRONE_WANDER_ACCELERATION === 0) return;
     this.wanderClock += dt;
     const t = this.wanderClock * Math.PI * 2;
     const scale = DRONE_WANDER_ACCELERATION * DRONE_MASS;
@@ -287,8 +348,9 @@ export class Drone {
     this.transform.push(this.position);
   }
 
-  render(alpha: number, frameDelta: number): void {
+  render(alpha: number, frameDelta: number, telegraph = 0): void {
     this.transform.readPosition(this.object.position, alpha);
+    this.renderTelegraph(frameDelta, telegraph);
 
     // Tilt follows velocity, capped at TILT_MAX, and is eased so a bounce does
     // not snap the body around.
@@ -314,9 +376,41 @@ export class Drone {
     }
   }
 
+  /**
+   * Red pulse over the final seconds of the fuse, accelerating as it runs out.
+   * Paired with the rising prop pitch, this is the whole telegraph — it has to
+   * be unmistakable, because the runners' only defence is knowing to get clear.
+   */
+  private renderTelegraph(frameDelta: number, telegraph: number): void {
+    if (telegraph <= 0) {
+      this.telegraphClock = 0;
+      this.material.emissive.setHex(0);
+      return;
+    }
+    const hz = TELEGRAPH_PULSE_HZ_START + (TELEGRAPH_PULSE_HZ_END - TELEGRAPH_PULSE_HZ_START) * telegraph;
+    this.telegraphClock += frameDelta * hz;
+    const flash = 0.5 + 0.5 * Math.sin(this.telegraphClock * Math.PI * 2);
+    this.material.emissive.setHex(TELEGRAPH_COLOR);
+    this.material.emissiveIntensity = flash;
+  }
+
+  /** Put the drone back at its launch point on a fresh cycle. */
+  relaunch(): void {
+    const [x, y, z] = DRONE_SPAWN;
+    this.body.setTranslation({ x, y, z }, true);
+    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    this.position.set(x, y, z);
+    this.transform.teleport(this.position);
+  }
+
   /** The drone's own collider, so the chase camera does not collide with it. */
   get hullCollider(): RAPIER.Collider {
     return this.collider;
+  }
+
+  /** 0-1, how hard the rotors are working. Drives the whine's pitch. */
+  get throttleLevel(): number {
+    return this.throttle;
   }
 
   get speed(): number {
@@ -332,6 +426,9 @@ export class Drone {
     ];
   }
 }
+
+/** Vertical speed below which a falling drone counts as landed. */
+const SETTLED_SPEED = 0.5;
 
 /** Anything prop wash can shove. */
 export interface PropWashTarget {

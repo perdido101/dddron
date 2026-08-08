@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 import {
   ARENA_SIZE,
+  FIXED_TIMESTEP,
   CAMERA_DISTANCE,
   CAMERA_TARGET_HEIGHT,
   DRONE_CAMERA_DISTANCE,
@@ -11,15 +12,19 @@ import {
   FOOT_OFFSET,
 } from '@shared/constants';
 
+import { PropWhine } from './engine/audio';
 import { DebugOverlay } from './engine/debugOverlay';
 import { Input } from './engine/input';
 import { Physics } from './engine/physics';
 import { View } from './engine/view';
 import { Arena } from './game/arena';
+import { Confetti } from './game/confetti';
 import { Drone } from './game/drone';
 import { FollowCamera } from './game/followCamera';
+import { Fuse, applyBlast } from './game/fuse';
 import { Runner } from './game/runner';
 import { TestCube } from './game/testCube';
+import { Hud } from './ui/hud';
 
 const KEY_FORWARD = 'KeyW';
 const KEY_BACK = 'KeyS';
@@ -52,6 +57,16 @@ async function boot(): Promise<void> {
   const drone = new Drone(physics, view.scene);
   const testCube = new TestCube(physics, view.scene);
   const camera = new FollowCamera(view.camera, physics);
+  const fuse = new Fuse();
+  const confetti = new Confetti(view.scene);
+  const hud = new Hud();
+  const whine = new PropWhine();
+
+  // Browsers will not start audio without a gesture, and the prop whine is a
+  // mechanic rather than polish, so wire it to the first interaction there is.
+  const startAudio = (): void => whine.start();
+  window.addEventListener('pointerdown', startAudio);
+  window.addEventListener('keydown', startAudio);
 
   // Free camera, for inspecting the arena and comparing the runner and drone
   // views in one build (phase 2 task list).
@@ -87,7 +102,15 @@ async function boot(): Promise<void> {
     // Both bodies always simulate; only the piloted one receives input. That is
     // what lets you park the drone, swap to the runner, and walk into its wash.
     runner.fixedUpdate(dt, moveInput, camera.heading);
-    drone.fixedUpdate(dt, droneInput, washTargets);
+    drone.fixedUpdate(dt, droneInput, washTargets, fuse);
+
+    // The battery is the only thing that can trigger a detonation — sacred
+    // constraint 2 — so the blast is a consequence of this step, not an action.
+    const detonation = fuse.step(dt, drone.position, drone.settled);
+    if (detonation) {
+      applyBlast(detonation.position, [runner]);
+      confetti.burst(detonation.position);
+    }
   });
   physics.onFixedPostStep(() => {
     drone.sample();
@@ -158,8 +181,17 @@ async function boot(): Promise<void> {
     physics.advance(frameDelta);
 
     runner.render(physics.alpha, frameDelta);
-    drone.render(physics.alpha, frameDelta);
+    drone.render(physics.alpha, frameDelta, fuse.telegraphProgress);
     testCube.render(physics.alpha);
+    confetti.update(frameDelta);
+    hud.update(fuse);
+    whine.update(
+      drone.object.position,
+      view.camera,
+      drone.throttleLevel,
+      fuse.telegraphProgress,
+      !fuse.piloted && fuse.state !== 'returning',
+    );
 
     if (orbitMode) {
       orbit.update();
@@ -183,6 +215,10 @@ async function boot(): Promise<void> {
 
     overlay.setExtraLines([
       `piloting     ${orbitMode ? 'free cam (debug)' : pilot}`,
+      `sim clock    ${(physics.totalSteps * FIXED_TIMESTEP).toFixed(2)}s  (${physics.totalSteps} steps)`,
+      `fuse         ${fuse.state}  cycle ${fuse.cycle + 1}  charge ${(fuse.charge * 100).toFixed(1)}%` +
+        `  ${fuse.secondsRemaining.toFixed(1)}s left`,
+      `runner       ${runner.alive ? 'alive' : 'ELIMINATED'}   audio ${whine.running ? 'on' : 'off (click)'}`,
       ...runner.debugLines(),
       ...drone.debugLines(),
       `cube y       ${testCube.height.toFixed(2)}  ${testCube.isAsleep ? '(asleep)' : '(awake)'}`,

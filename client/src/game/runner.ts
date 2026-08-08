@@ -59,6 +59,8 @@ export class Runner {
   readonly position = new THREE.Vector3();
   readonly velocity = new THREE.Vector3();
   grounded = false;
+  /** Eliminated runners stop simulating and vanish (phase 8 makes them gremlins). */
+  alive = true;
 
   private readonly body: RAPIER.RigidBody;
   private readonly collider: RAPIER.Collider;
@@ -153,6 +155,14 @@ export class Runner {
     this.push.addScaledVector(force, dt / RUNNER_MASS);
   }
 
+  /** Caught in a detonation. Never called by anything but the blast query. */
+  eliminate(): void {
+    this.alive = false;
+    this.object.visible = false;
+    this.velocity.set(0, 0, 0);
+    this.push.set(0, 0, 0);
+  }
+
   /** Latch a jump press. Buffered so it survives the gap between fixed steps. */
   queueJump(): void {
     this.jumpBufferTimer = JUMP_BUFFER_TIME;
@@ -160,6 +170,8 @@ export class Runner {
 
   respawn(): void {
     const [x, y, z] = RUNNER_SPAWN;
+    this.alive = true;
+    this.object.visible = true;
     this.position.set(x, y, z);
     this.velocity.set(0, 0, 0);
     this.push.set(0, 0, 0);
@@ -172,6 +184,7 @@ export class Runner {
    * @param cameraYaw heading the movement is relative to.
    */
   fixedUpdate(dt: number, moveInput: THREE.Vector2, cameraYaw: number): void {
+    if (!this.alive) return;
     this.integrateHorizontal(dt, moveInput, cameraYaw);
     this.integrateVertical(dt);
 

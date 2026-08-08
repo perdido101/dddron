@@ -55,6 +55,65 @@
         z-index: 10;
         transition: opacity 0.25s ease;
       }
+      #hud {
+        position: fixed;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        min-width: 260px;
+        padding: 10px 16px 12px;
+        border-radius: 12px;
+        background: rgba(24, 30, 38, 0.72);
+        color: #eef6ff;
+        text-align: center;
+        pointer-events: none;
+        z-index: 12;
+      }
+      .hud-label {
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        opacity: 0.72;
+      }
+      .hud-readout {
+        font-size: 30px;
+        font-weight: 700;
+        line-height: 1.15;
+        font-variant-numeric: tabular-nums;
+      }
+      .hud-track {
+        height: 8px;
+        margin: 4px 0 6px;
+        border-radius: 99px;
+        background: rgba(255, 255, 255, 0.16);
+        overflow: hidden;
+      }
+      .hud-bar {
+        height: 100%;
+        width: 100%;
+        border-radius: 99px;
+        transition: width 0.12s linear, background 0.3s ease;
+      }
+      .hud-status {
+        font-size: 11px;
+        opacity: 0.82;
+        font-variant-numeric: tabular-nums;
+      }
+      #hud-warning {
+        position: fixed;
+        top: 130px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: none;
+        padding: 8px 20px;
+        border-radius: 8px;
+        background: #ff4d5e;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        pointer-events: none;
+        z-index: 12;
+      }
       #boot {
         position: fixed;
         inset: 0;

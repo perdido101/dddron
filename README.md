@@ -12,8 +12,9 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 | --- | --- | --- |
 | 0 | Scaffold, fixed-step Rapier, debug overlay | done |
 | 1 | Runner controller + grey-box arena | done — feel gate passed |
-| 2 | Drone controller | **done — awaiting FEEL GATE playtest** |
-| 3–11 | Fuse loop, EMP, netcode, lobby, hazards, art, deploy | not started |
+| 2 | Drone controller | done — feel gate passed |
+| 3 | Battery, detonation, respawn cycle | done |
+| 4–11 | EMP objective, netcode, lobby, hazards, art, deploy | not started |
 
 Phases 1 and 2 each end in a feel gate. Nothing past a gate gets built until a
 human has played it, because everything downstream is worthless if the gates
@@ -53,7 +54,7 @@ Other scripts: `npm run typecheck` (all workspaces, strict), `npm run build`
 | `C` | Swap between piloting the runner and the drone |
 | `~` | Debug overlay: fps, physics cost, body count, runner state |
 | `O` | Free camera (inspect the arena, or either body, mid-build) |
-| `R` | Respawn the runner |
+| `R` | Respawn the runner (revives after a detonation) |
 | `B` | Re-drop the phase 0 test cube |
 
 ## Layout
@@ -113,6 +114,32 @@ realised value; physics reads the intent.
 **Authority, for later phases.** Runner movement is client-authoritative by
 design (sacred constraint 5). The server will validate only battery, cores, EMP
 state, detonation and elimination. No rollback, no lag compensation.
+
+## Phase 3 verification
+
+- **Fuse drains at exactly the constant.** Measured against the simulated clock
+  rather than wall time: 13.97 simulated seconds drained 23.30% of the battery,
+  an implied fuse of **59.957 s** against `FUSE_BY_CYCLE[0] = 60` — 0.07% error,
+  which is just the one-frame gap between reading the clock and the charge.
+- **Blast boundary.** Runner held at 3.08 m from the drone at detonation:
+  eliminated. Held at 5.07 m: survived. `DETONATION_RADIUS` is 4.0 and the query
+  is a true 3-D sphere, so a drone hovering high cannot reach a grounded runner —
+  it has to come down to be lethal.
+- **Cycle 2 is shorter.** Full cycle observed end to end:
+  `armed -> telegraph -> inert -> returning -> recharging -> armed`, relaunching
+  on cycle 2 with 45 s of fuse against cycle 1's 60 s.
+- **Telegraph** shows the red HUD warning and pulses the drone body, with the
+  prop pitch and a low warble rising underneath it.
+
+**Not verifiable here: the audio.** The container has no audio device, so I can
+confirm the graph is built and running (`audio on` in the overlay, an
+`AudioContext` in the `running` state, panner and oscillator parameters driven
+every frame) but I cannot hear it. The phase 3 criterion *"with eyes closed, a
+player can tell whether the drone is approaching or receding"* needs your ears.
+The whine is synthesised, not sampled — three detuned oscillators through a
+lowpass, positioned with an HRTF `PannerNode` — because the asset manifest is
+explicit that a loop cannot do continuous pitch shift convincingly, and locating
+the drone by ear is a mechanic rather than polish.
 
 ## Phase 2 verification
 

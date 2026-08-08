@@ -248,8 +248,14 @@ export const DRONE_ACCELERATION = 8.0;
 export const DRONE_LINEAR_DAMPING = 0.6;
 /** Visual tilt follows velocity, capped at 25 degrees. */
 export const TILT_MAX = (25 * Math.PI) / 180;
-export const ALTITUDE_MIN = 1.5;
-export const ALTITUDE_MAX = 12.0;
+/**
+ * OVERRIDDEN BY THE DIRECTOR. The brief specifies 1.5 / 12.0; the band was
+ * widened on request so the drone can get right down to floor level and up
+ * near the 14 m ceiling. Docking on a charge pad in phase 3 needs the low end
+ * anyway.
+ */
+export const ALTITUDE_MIN = 0.6;
+export const ALTITUDE_MAX = 13.0;
 /** Wall and ceiling restitution — it should visibly bonk. */
 export const WALL_BOUNCE = 0.45;
 /** Pushes runners, never damages. */
@@ -284,7 +290,7 @@ export const DRONE_SPAWN = [0.0, 5.0, -6.0] as const;
  * own weight first (a toy drone that sinks the moment you stop holding Space is
  * miserable to fly), so this is climb authority on top of a neutral hover.
  */
-export const DRONE_VERTICAL_ACCELERATION = 9.0;
+export const DRONE_VERTICAL_ACCELERATION = 17.0;
 /** Fraction of gravity the rotors cancel while powered. 1 = neutral hover. */
 export const DRONE_HOVER_COMPENSATION = 1.0;
 /**
@@ -298,14 +304,16 @@ export const DRONE_HOVER_COMPENSATION = 1.0;
 export const DRONE_THRUST_CUTOFF = DRONE_MAX_SPEED;
 
 /**
- * unspecified. A slow, ever-present wander so the drone can never be parked.
- * Sacred constraint 1: "if the drone can hover precisely on a target and hold
- * position, the game is dead". With only the brief's damping the drone coasts
- * to a dead stop and stays there, which fails the phase 2 criterion that
- * holding a spot be difficult. Two incommensurate sines keep it deterministic
- * (no RNG), so it stays reproducible across clients in phase 5.
+ * A slow wander so the drone cannot be parked, from two incommensurate sines
+ * (deterministic, no RNG, so clients agree in phase 5).
+ *
+ * SET TO 0 BY THE DIRECTOR, who chose to override sacred constraint 1's clause
+ * that "if the drone can hover precisely on a target and hold position, the
+ * game is dead". Momentum and drift are untouched — the drone still coasts ~11 m
+ * after you release the stick — it just settles instead of creeping. Raise this
+ * back to ~0.3 to restore the constraint; nothing else needs to change.
  */
-export const DRONE_WANDER_ACCELERATION = 0.3;
+export const DRONE_WANDER_ACCELERATION = 0.0;
 export const DRONE_WANDER_HZ_X = 0.37;
 export const DRONE_WANDER_HZ_Z = 0.29;
 
@@ -359,6 +367,52 @@ export const TELEGRAPH_PULSE_HZ_END = 8.0;
 /** unspecified. Prop whine pitch across idle -> full throttle. */
 export const PROP_PITCH_MIN = 0.75;
 export const PROP_PITCH_MAX = 1.6;
+
+/**
+ * unspecified. Prop whine synthesis. The asset manifest forbids a sample here:
+ * continuous pitch shift is how runners locate the drone by ear, and a loop
+ * cannot do it convincingly.
+ */
+export const PROP_WHINE_BASE_HZ = 118;
+export const PROP_WHINE_LAYERS = 3;
+export const PROP_WHINE_DETUNE = 22;
+export const PROP_WHINE_FILTER_HZ = 1400;
+export const PROP_WHINE_GAIN = 0.16;
+/** Battery-low warble layered under the whine during the telegraph. */
+export const TELEGRAPH_WARBLE_HZ = 11;
+export const TELEGRAPH_WARBLE_DEPTH = 42;
+
+// ---------------------------------------------------------------------------
+// DETONATION PRESENTATION (phase 3)
+// ---------------------------------------------------------------------------
+
+/** unspecified. Confetti burst — bright and celebratory, never gory. */
+export const CONFETTI_COUNT = 220;
+export const CONFETTI_SPEED = 11.0;
+export const CONFETTI_LIFETIME = 1.6;
+export const CONFETTI_SIZE = 0.22;
+export const CONFETTI_GRAVITY = -11.0;
+export const CONFETTI_COLORS = [
+  0xff8fa3, 0xffd166, 0x8fe3c4, 0x9bb8ff, 0xd7a6ff, 0xfff3b0,
+] as const;
+
+/** unspecified. Emissive pulse on the drone body during the telegraph. */
+export const TELEGRAPH_COLOR = 0xff4d5e;
+/** unspecified. Battery gauge colours, readable across the arena (phase 10). */
+export const BATTERY_COLOR_FULL = 0x7fd4a8;
+export const BATTERY_COLOR_LOW = 0xffd166;
+export const BATTERY_COLOR_CRITICAL = 0xff4d5e;
+/** Battery fraction below which the gauge reads "low". */
+export const BATTERY_LOW_FRACTION = 0.35;
+
+/** unspecified. Drone docking and post-detonation behaviour. */
+export const DRONE_DOCK_RADIUS = 1.2;
+/** Steering force used while the drone flies itself back to a pad. */
+export const DRONE_RETURN_ACCELERATION = 6.0;
+/** Altitude the drone holds while limping back to a pad. */
+export const DRONE_RETURN_ALTITUDE = 3.0;
+/** Height above the pad at which the drone counts as docked. */
+export const DRONE_DOCK_HEIGHT = 0.6;
 
 /** derived. Fuse for a given cycle, clamped to the final entry. */
 export function fuseForCycle(cycle: number): number {

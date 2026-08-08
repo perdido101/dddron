@@ -26,6 +26,8 @@ export class Physics {
   stepMs = 0;
   /** Steps simulated during the most recent frame. */
   stepsLastFrame = 0;
+  /** Total steps since boot. Simulated time is this * FIXED_TIMESTEP. */
+  totalSteps = 0;
 
   private accumulator = 0;
   private readonly preStep: FixedStepListener[] = [];
@@ -72,6 +74,7 @@ export class Physics {
       for (const listener of this.postStep) listener(FIXED_TIMESTEP);
       this.accumulator -= FIXED_TIMESTEP;
       steps += 1;
+      this.totalSteps += 1;
     }
 
     if (this.accumulator >= FIXED_TIMESTEP) this.accumulator = 0;
