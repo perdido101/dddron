@@ -384,14 +384,10 @@ export class Drone {
   /**
    * One fixed step of piloting. Call before the world steps.
    *
-   * @param runners bodies to shove with prop wash.
+   * Prop wash is deliberately NOT applied here — see applyPropWash, which the
+   * game loop calls separately so a client with no drone body still feels it.
    */
-  fixedUpdate(
-    dt: number,
-    input: DroneInput,
-    runners: readonly PropWashTarget[],
-    fuse: Fuse,
-  ): void {
+  fixedUpdate(dt: number, input: DroneInput, fuse: Fuse): void {
     // Stowed: somebody else is flying, and this copy is not in the world.
     if (!this.active) return;
 
@@ -431,9 +427,6 @@ export class Drone {
       this.applyWander(dt);
       this.throttle = Math.min(Math.hypot(input.move.x, input.move.y) + Math.abs(input.lift), 1);
       this.body.addForce(this.force, true);
-      // Prop wash only exists while the rotors are turning, which is what
-      // `washing` reports to whoever applies it.
-      void runners;
       return;
     }
 
@@ -669,6 +662,10 @@ export class Drone {
     this.tiltPitch = 0;
     this.tiltRoll = 0;
     this.wanderClock = 0;
+    // The halo's pulse and its cached arc are part of the visible state, so a
+    // "deterministic reset" that leaves them running is not one.
+    this.haloClock = 0;
+    this.haloCharge = -1;
     this.position.set(x, y, z);
     this.transform.teleport(this.position);
   }

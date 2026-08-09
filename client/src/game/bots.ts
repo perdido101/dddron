@@ -50,7 +50,7 @@ export class Bots {
    * @param snapshot current server state, which names the bots and holds cores.
    * @returns one command per bot for the host to relay.
    */
-  update(dt: number, snapshot: NetSnapshot, selfId: string): BotCommand[] {
+  update(dt: number, snapshot: NetSnapshot): BotCommand[] {
     const commands: BotCommand[] = [];
     const live = new Set<string>();
 
@@ -87,7 +87,6 @@ export class Bots {
     for (const id of [...this.bodies.keys()]) {
       if (!live.has(id)) this.bodies.delete(id);
     }
-    void selfId;
     return commands;
   }
 

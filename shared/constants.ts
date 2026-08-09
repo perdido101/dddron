@@ -353,10 +353,16 @@ export const DRONE_INERT_TIME = 2.0;
 // ---------------------------------------------------------------------------
 
 /**
- * Fuse length in seconds per detonation cycle; index 5+ clamps to 22.
+ * Fuse length in seconds per detonation cycle; index 5+ clamps to the last.
  * Highest-leverage balance lever in the game — tune this first.
+ *
+ * Director's call: run the whole fuse 1.5x faster than the brief's
+ * [60, 45, 35, 28, 22]. Detonations are the drone's only offence and the
+ * clock everything else is paced against, so this is not a small change —
+ * it roughly halves the time a runner has between blasts by the fourth
+ * cycle, and it shortens every window the objective has to fit inside.
  */
-export const FUSE_BY_CYCLE = [60, 45, 35, 28, 22] as const;
+export const FUSE_BY_CYCLE = [40, 30, 23, 19, 15] as const;
 
 export const DETONATION_RADIUS = 4.0;
 /** Last 3 s: drone flashes red, prop pitch rises. */

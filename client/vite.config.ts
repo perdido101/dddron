@@ -23,5 +23,25 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
+    rollupOptions: {
+      output: {
+        /**
+         * Split the two big dependencies out of the app chunk.
+         *
+         * Three.js and Rapier are ~2.5 MB together and change only when their
+         * versions do, while the game code changes every push. Separating them
+         * means a returning player re-downloads the small chunk and keeps the
+         * large ones cached, instead of the whole bundle every time.
+         */
+        manualChunks: {
+          three: ['three'],
+          rapier: ['@dimforge/rapier3d-compat'],
+        },
+      },
+    },
+    // Rapier's compat build carries its WASM inline as base64, so its chunk is
+    // ~2 MB no matter what and there is nothing left to split out of it. Set
+    // just above that, so the warning still fires on a real regression.
+    chunkSizeWarningLimit: 2200,
   },
 });

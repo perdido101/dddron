@@ -113,6 +113,9 @@ function reachableAction(
   return near ? 'pickup' : null;
 }
 
+/** Radians of free-cam travel kept above the floor plane. */
+const ORBIT_HORIZON_MARGIN = 0.08;
+
 /** Dev-console teleport targets: the places a playtest keeps walking back to. */
 const TELEPORTS: Record<string, readonly [number, number, number]> = {
   spawn: RUNNER_SPAWN,
@@ -161,7 +164,10 @@ async function boot(): Promise<void> {
   let lastPhase = '';
   /** Session id of the bot flying the drone, when the host is simulating it. */
   let botDroneId = '';
-  /** Relayed runners, so the autopilot chases the whole room and not just us. */
+  /**
+   * Relayed runners, so the autopilot chases the whole room and not just us.
+   * Mutable entries, refilled in place each frame.
+   */
   const autopilotTargets: { alive: boolean; position: THREE.Vector3 }[] = [];
   /** The server's word on whether the drone is grounded, for prop wash. */
   let netDroneKnocked = false;
@@ -256,6 +262,10 @@ async function boot(): Promise<void> {
   orbit.enabled = false;
   orbit.target.set(0, 0, 0);
   orbit.maxDistance = ARENA_SIZE;
+  // Stop just short of the horizon: dragging past it puts the camera under the
+  // floor, where the arena is an opaque slab and it looks like the renderer has
+  // broken. Caught me twice while taking screenshots for these sessions.
+  orbit.maxPolarAngle = Math.PI / 2 - ORBIT_HORIZON_MARGIN;
 
   const debugElement = document.getElementById('debug');
   const hintElement = document.getElementById('hint');
@@ -358,7 +368,7 @@ async function boot(): Promise<void> {
     } else if (pilot !== 'drone' && fuse.piloted) {
       drone.steerTowards(autopilot.yaw, dt);
     }
-    drone.fixedUpdate(dt, flown, washTargets, fuse);
+    drone.fixedUpdate(dt, flown, fuse);
 
     // Prop wash is applied here, not inside the drone, so that a client with
     // no drone body of its own still feels it: `drone.position` mirrors the
@@ -576,14 +586,21 @@ async function boot(): Promise<void> {
       }
       objective.setCoresVisible(false);
 
-      autopilotTargets.length = 0;
+      // Reuse the entries rather than rebuilding them: this runs every frame,
+      // and allocating a vector per player per frame is pure garbage churn.
+      let target = 0;
       for (const player of snapshot.players) {
         if (player.role !== 'runner') continue;
-        autopilotTargets.push({
-          alive: player.alive,
-          position: new THREE.Vector3(player.x, player.y, player.z),
-        });
+        let slot = autopilotTargets[target];
+        if (!slot) {
+          slot = { alive: true, position: new THREE.Vector3() };
+          autopilotTargets.push(slot);
+        }
+        slot.alive = player.alive;
+        slot.position.set(player.x, player.y, player.z);
+        target += 1;
       }
+      autopilotTargets.length = target;
 
       if (snapshot.phase !== lastPhase) {
         lastPhase = snapshot.phase;
@@ -598,7 +615,7 @@ async function boot(): Promise<void> {
       // conflicting positions for the same bodies, and the server takes bot
       // moves from the host alone anyway.
       if (snapshot.host === net.sessionId && snapshot.phase === 'playing') {
-        const commands = bots.update(frameDelta, snapshot, net.sessionId);
+        const commands = bots.update(frameDelta, snapshot);
         botSendTimer += frameDelta;
         // Positions go out at the same rate as a human's, so bots cost the
         // same bandwidth as the players they stand in for.

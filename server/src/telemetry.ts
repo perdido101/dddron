@@ -120,8 +120,9 @@ class Telemetry {
 }
 
 /**
- * How many round summaries to keep. Twenty is well past the point where the
- * medians stop moving in a playtest, and it bounds the memory on a small host.
+ * How many round summaries to keep. Far past the point where the medians stop
+ * moving in a playtest, and small enough to bound memory on a shared host: a
+ * summary is ~20 numbers, so the whole window is a few tens of kilobytes.
  */
 const SUMMARY_WINDOW = 200;
 
