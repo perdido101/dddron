@@ -1,6 +1,6 @@
 import { ALTITUDE_MAX, ROUND_TIME, TELEGRAPH_TIME } from '@shared/constants';
 
-import type { Fuse } from '../game/fuse';
+import type { Fuse } from '@shared/fuse';
 
 /**
  * Onboard telemetry drawn inside the feed.

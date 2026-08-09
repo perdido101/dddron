@@ -49,7 +49,7 @@ import {
 
 import { InterpolatedTransform } from '../engine/interpolation';
 import type { Physics } from '../engine/physics';
-import type { Fuse } from './fuse';
+import type { Fuse } from '@shared/fuse';
 
 /** What the pilot is asking for this step. */
 export interface DroneInput {

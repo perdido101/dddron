@@ -6,7 +6,8 @@
   "main": "constants.ts",
   "types": "constants.ts",
   "exports": {
-    "./constants": "./constants.ts"
+    "./constants": "./constants.ts",
+    "./fuse": "./fuse.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

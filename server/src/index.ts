@@ -1,8 +1,20 @@
+import { createServer } from 'node:http';
+
+import { Server } from 'colyseus';
+
+import { GameRoom } from './GameRoom';
+
 /**
- * Colyseus authoritative game server.
+ * Colyseus host.
  *
- * Empty by design: phase 5 of the build brief is the first phase that adds
- * netcode. The workspace exists now so /shared is imported by both sides from
- * the start and the monorepo layout matches the brief.
+ * Port and room cap come from the environment — phase 11 wants no hardcoded
+ * endpoints, and starting that way costs nothing.
  */
-export {};
+const port = Number(process.env.PORT ?? 2567);
+
+const gameServer = new Server({ server: createServer() });
+gameServer.define('buzzkill', GameRoom);
+
+void gameServer.listen(port).then(() => {
+  console.log(`BUZZKILL server listening on :${port}`);
+});

@@ -51,6 +51,13 @@ export const CLIENT_SEND_HZ = 20;
 export const SERVER_BROADCAST_HZ = 20;
 /** Colyseus allowReconnection window (phase 6). */
 export const RECONNECT_WINDOW = 30;
+/**
+ * unspecified. Smoothing half-life for remote entities. The server broadcasts
+ * at 20 Hz and we render at 60+, so without interpolation everyone else moves
+ * in visible steps. Never applied to the local player — that would be a
+ * correction, which sacred constraint 5 forbids.
+ */
+export const NET_INTERPOLATION_LAG = 0.08;
 
 // ---------------------------------------------------------------------------
 // ARENA

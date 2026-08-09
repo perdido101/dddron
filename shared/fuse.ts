@@ -1,5 +1,11 @@
-import * as THREE from 'three';
-
+/**
+ * The fuse: the drone's battery, and therefore its life cycle.
+ *
+ * Lives in /shared because sacred constraint 3 makes battery server-authoritative
+ * and the single source of truth. The server runs this; clients only render what
+ * it reports. Deliberately free of Three.js and of any renderer type, so the
+ * exact same file executes in Node.
+ */
 import {
   CHARGE_PAD_POSITIONS,
   DETONATION_RADIUS,
@@ -9,7 +15,7 @@ import {
   RECHARGE_TIME,
   TELEGRAPH_TIME,
   fuseForCycle,
-} from '@shared/constants';
+} from './constants';
 
 /**
  * The drone's life cycle. The battery IS the fuse (concept, section 1), and
@@ -29,8 +35,15 @@ export type FuseState =
   | 'recharging';
 
 export interface DetonationEvent {
-  readonly position: THREE.Vector3;
+  readonly position: Vec3;
   readonly cycle: number;
+}
+
+/** Minimal position type, so this file works on the server with no renderer. */
+export interface Vec3 {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
 }
 
 /**
@@ -84,7 +97,7 @@ export class Fuse {
    */
   step(
     dt: number,
-    dronePosition: THREE.Vector3,
+    dronePosition: Vec3,
     grounded: boolean,
     availablePads: readonly (readonly [number, number])[] = CHARGE_PAD_POSITIONS,
   ): DetonationEvent | null {
@@ -140,14 +153,14 @@ export class Fuse {
     }
   }
 
-  private detonate(position: THREE.Vector3): DetonationEvent {
+  private detonate(position: Vec3): DetonationEvent {
     this.charge = 0;
     this.state = 'inert';
     this.timer = 0;
-    return { position: position.clone(), cycle: this.cycle };
+    return { position: { x: position.x, y: position.y, z: position.z }, cycle: this.cycle };
   }
 
-  private docked(position: THREE.Vector3): boolean {
+  private docked(position: Vec3): boolean {
     if (!this.targetPad) return false;
     const [px, pz] = this.targetPad;
     return (
@@ -162,7 +175,7 @@ export class Fuse {
    * filter goes.
    */
   private nearestPad(
-    position: THREE.Vector3,
+    position: Vec3,
     pads: readonly (readonly [number, number])[],
   ): readonly [number, number] {
     let best: readonly [number, number] = pads[0] ?? CHARGE_PAD_POSITIONS[0];
@@ -183,6 +196,10 @@ export class Fuse {
   }
 }
 
+function distance(a: Vec3, b: Vec3): number {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2);
+}
+
 function samePad(
   a: readonly [number, number],
   b: readonly [number, number] | null,
@@ -192,7 +209,7 @@ function samePad(
 
 /** Everything the detonation can eliminate. */
 export interface Blastable {
-  readonly position: THREE.Vector3;
+  readonly position: Vec3;
   readonly alive: boolean;
   eliminate(): void;
 }
@@ -201,11 +218,11 @@ export interface Blastable {
  * Sphere overlap at DETONATION_RADIUS. Anything inside is eliminated.
  * @returns the victims, for scoring and for the kill feed.
  */
-export function applyBlast(origin: THREE.Vector3, targets: readonly Blastable[]): Blastable[] {
+export function applyBlast(origin: Vec3, targets: readonly Blastable[]): Blastable[] {
   const victims: Blastable[] = [];
   for (const target of targets) {
     if (!target.alive) continue;
-    if (target.position.distanceTo(origin) <= DETONATION_RADIUS) {
+    if (distance(target.position, origin) <= DETONATION_RADIUS) {
       target.eliminate();
       victims.push(target);
     }

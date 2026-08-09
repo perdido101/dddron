@@ -5,7 +5,7 @@ import {
   BATTERY_LOW_FRACTION,
 } from '@shared/constants';
 
-import type { Fuse } from '../game/fuse';
+import type { Fuse } from '@shared/fuse';
 import type { ObjectiveStatus } from '../game/objective';
 
 /**

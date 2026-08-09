@@ -26,10 +26,12 @@ import { Confetti } from './game/confetti';
 import { Drone } from './game/drone';
 import { FollowCamera } from './game/followCamera';
 import { FpvFeed } from './game/fpv';
-import { Fuse, applyBlast } from './game/fuse';
+import { Fuse, applyBlast } from '@shared/fuse';
 import { Objective } from './game/objective';
 import { Runner } from './game/runner';
 import { TestCube } from './game/testCube';
+import { Connection, resolveEndpoint } from './net/connection';
+import { RemoteAvatars } from './net/remoteAvatars';
 import { FpvOverlay } from './ui/fpvOverlay';
 import { Hud } from './ui/hud';
 
@@ -75,6 +77,13 @@ async function boot(): Promise<void> {
   const fpv = new FpvFeed(view.renderer);
   const fpvOverlay = new FpvOverlay();
   fpv.attachTo(drone.chassisObject);
+  // Networking is optional: with no server configured this stays offline and
+  // the whole single-player build behaves exactly as before.
+  const net = new Connection();
+  const avatars = new RemoteAvatars(view.scene);
+  net.onDetonation = (message) => confetti.burst(message);
+  void net.connect(resolveEndpoint(), 'player');
+
   const sizeFpv = (): void => fpv.resize(window.innerWidth, window.innerHeight);
   sizeFpv();
   window.addEventListener('resize', sizeFpv);
@@ -279,6 +288,7 @@ async function boot(): Promise<void> {
 
     overlay.setExtraLines([
       `piloting     ${orbitMode ? 'free cam (debug)' : pilot}`,
+      `network      ${net.connected ? `online (${net.sessionId.slice(0, 6)})` : net.error ?? 'offline — single player'}`,
       `sim clock    ${(physics.totalSteps * FIXED_TIMESTEP).toFixed(2)}s  (${physics.totalSteps} steps)`,
       `fuse         ${fuse.state}  cycle ${fuse.cycle + 1}  charge ${(fuse.charge * 100).toFixed(1)}%` +
         `  ${fuse.secondsRemaining.toFixed(1)}s left`,
@@ -298,6 +308,24 @@ async function boot(): Promise<void> {
       'E interact · C swap pilot · V FPV · R respawn · B drop cube · O free cam',
     ]);
     overlay.update(frameDelta, physics);
+
+    // Server-authoritative state, rendered verbatim and never recomputed.
+    const snapshot = net.snapshot();
+    if (snapshot) {
+      avatars.update(snapshot, net.sessionId, frameDelta);
+      fuse.charge = snapshot.battery;
+      fuse.cycle = snapshot.cycle;
+      fuse.state = snapshot.fuseState as typeof fuse.state;
+    } else if (net.error) {
+      avatars.clear();
+    }
+    net.update(
+      frameDelta,
+      pilot === 'drone'
+        ? { x: drone.position.x, y: drone.position.y, z: drone.position.z, yaw: drone.yaw }
+        : { x: runner.position.x, y: runner.position.y, z: runner.position.z, yaw: camera.heading },
+      interactHeld,
+    );
 
     if (empFlash > 0) empFlash = Math.max(0, empFlash - frameDelta);
     hud.updateObjective(objective.status(), empFlash / EMP_FLASH_TIME);

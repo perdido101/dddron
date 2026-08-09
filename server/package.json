@@ -3,8 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Colyseus authoritative rooms. Populated in phase 5 — see the build brief.",
+  "description": "Colyseus authoritative rooms.",
   "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.11",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "colyseus": "^0.16.5"
   }
 }

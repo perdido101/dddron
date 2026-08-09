@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import type { Vec3 } from '@shared/fuse';
+
 import {
   CONFETTI_COLORS,
   CONFETTI_COUNT,
@@ -55,7 +57,7 @@ export class Confetti {
   }
 
   /** Fire a burst from a point. Re-firing restarts the existing particles. */
-  burst(origin: THREE.Vector3): void {
+  burst(origin: Vec3): void {
     for (let i = 0; i < CONFETTI_COUNT; i += 1) {
       // Even-ish sphere of directions, biased upward so it reads as a popper.
       const theta = (i / CONFETTI_COUNT) * Math.PI * 2 * GOLDEN_ANGLE_TURNS;

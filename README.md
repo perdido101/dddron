@@ -16,7 +16,8 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 | 3 | Battery, detonation, respawn cycle | done |
 | 4 | Power cores + EMP objective | done — one criterion open (see below) |
 | Add-on 01 | Drone FPV camera | done |
-| 5–11 | Netcode, lobby, hazards, gremlins, scoring, art, deploy | **not started** |
+| 5 | Colyseus netcode | done — see verification below |
+| 6–11 | Lobby, hazards, gremlins, scoring, art, deploy | **not started** |
 
 Phases 1 and 2 each end in a feel gate. Nothing past a gate gets built until a
 human has played it, because everything downstream is worthless if the gates
@@ -65,9 +66,10 @@ Other scripts: `npm run typecheck` (all workspaces, strict), `npm run build`
 
 ```
 /client    Vite + Three.js + Rapier. All rendering and local simulation.
-/server    Colyseus rooms. Empty until phase 5 — the workspace exists so
-           /shared is imported by both sides from the start.
-/shared    constants.ts — the tuning surface for the entire game.
+/server    Colyseus rooms. Authoritative battery, cores, EMP, detonation,
+           elimination, round timer and win conditions.
+/shared    constants.ts (the tuning surface) and fuse.ts (the battery state
+           machine), both imported by client AND server.
 ```
 
 ### /shared/constants.ts
@@ -118,6 +120,41 @@ realised value; physics reads the intent.
 **Authority, for later phases.** Runner movement is client-authoritative by
 design (sacred constraint 5). The server will validate only battery, cores, EMP
 state, detonation and elimination. No rollback, no lag compensation.
+
+## Multiplayer
+
+```bash
+npm run dev --workspace @buzzkill/server     # ws://localhost:2567
+npm run dev                                  # client
+```
+
+Point the client at a server with `?server=ws://host:port`, or set
+`VITE_SERVER_URL` at build time. **With neither, the client stays single-player**
+— there is no hardcoded endpoint anywhere, and the offline build is unaffected.
+
+### Phase 5 verification
+
+Driven with two clients against a live server.
+
+- **Roles**: first joiner becomes the drone, second becomes a runner.
+- **Battery is identical on both clients**: 24/24 samples byte-identical when
+  both rooms are read in the same instant from one process. (Reading two
+  *browsers* sequentially shows the occasional one-tick difference — that is the
+  ~50 ms gap between the two reads, not a desync.)
+- **Movement relays** and a **stale packet is ignored**: after `seq=1` placed a
+  player at x=5, a replayed `seq=0` claiming x=99 was correctly dropped.
+- **Core pickup cannot be duplicated**: both clients held the interact key on
+  the same core simultaneously; exactly one carrier resulted, and the drone
+  player — who may not carry at all — did not.
+- **Drone disconnect ends the round unscored**: phase went to `ended` with
+  winner `aborted`, cause "the drone player left".
+- **Remote entities are drawn and interpolated**: draw calls rise above the
+  21-object solo baseline on both clients once each sees the other.
+
+- **Killing the server mid-round does not corrupt the client**: with a browser
+  connected, the server process was killed outright. The client reported
+  `connection lost (code 4000)`, kept rendering (its simulation clock went on
+  advancing from 14.78 s to 16.80 s), and threw no page errors.
 
 ## Phase 4 verification
 
