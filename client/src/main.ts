@@ -49,6 +49,7 @@ import { Objective } from './game/objective';
 import { Runner } from './game/runner';
 import { SoloBots } from './game/soloBots';
 import { TestCube } from './game/testCube';
+import { Village, dressArena, loadVillage } from './game/village';
 import { Connection, resolveEndpoint, type NetSnapshot } from './net/connection';
 import { RemoteAvatars } from './net/remoteAvatars';
 import { DevConsole } from './ui/devConsole';
@@ -288,6 +289,9 @@ async function boot(): Promise<void> {
     for (const bot of soloBots.runners) bot.attachCharacter(new Character(scene, animations));
   });
   void loadProps().then((props) => hazards.setPropModels(props));
+  // Set dressing. Loaded last and never awaited: the arena is the game, the
+  // village is what it stands in, and one must not delay the other.
+  void loadVillage().then((pieces) => dressArena(new Village(view.scene), pieces));
 
   const sizeFpv = (): void => fpv.resize(window.innerWidth, window.innerHeight);
   sizeFpv();

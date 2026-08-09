@@ -695,6 +695,19 @@ export const HEAD_YAW_MAX = 1.3;
 export const HEAD_TURN_EASE = 0.09;
 
 /**
+ * Village dressing. Decorative only — nothing here has a collider, because the
+ * arena's collision layout is tuned and set dressing must not move a surface a
+ * player can touch.
+ */
+export const VILLAGE_MODULE = 1.0;
+/** Radius the ring of houses sits on, outside the arena walls. */
+export const VILLAGE_HOUSE_RING = 34.0;
+export const VILLAGE_TREE_COUNT = 54;
+export const VILLAGE_PROP_COUNT = 22;
+/** Tufts of grass, flowers and pebbles inside the play area. */
+export const VILLAGE_GRASS_COUNT = 260;
+
+/**
  * Sticker faces (manifest, PROC, P1): four expressions on an alpha plane
  * parented to the head. Drawn to a canvas at boot — no image files.
  */
