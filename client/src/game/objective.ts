@@ -206,10 +206,20 @@ export class Objective {
     this.updateCharge(dt, runners);
   }
 
-  /** Prop wash knocks a carried core loose where the runner stands. */
+  /**
+   * Knock loose any core whose carrier is no longer carrying it.
+   *
+   * Three ways that happens: prop wash shoved them, they were eliminated, or
+   * something outside cleared their `carrying` flag. The last one is not
+   * hypothetical — an eliminated bot that respawns before this runs comes back
+   * alive and empty-handed while the core is still mapped to it, and then the
+   * bot hunts for a core that does not exist while the objective waits for it
+   * to deliver one it does not think it has. Reconciling on the flag rather
+   * than only on the cause makes that state unrepresentable.
+   */
   private dropIfShoved(shoved: ReadonlySet<Runner>): void {
     for (const [carrier, core] of [...this.held]) {
-      if (!shoved.has(carrier) && carrier.alive) continue;
+      if (!shoved.has(carrier) && carrier.alive && carrier.carrying) continue;
 
       core.state = 'loose';
       // Move it first: the pad test has to run against where it LANDS, not

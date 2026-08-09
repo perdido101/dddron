@@ -56,6 +56,7 @@ import { DevConsole } from './ui/devConsole';
 import { FpvOverlay } from './ui/fpvOverlay';
 import { Hud } from './ui/hud';
 import { Lobby } from './ui/lobby';
+import { Menu } from './ui/menu';
 import { RoundSummaryPanel } from './ui/roundSummary';
 
 const KEY_FORWARD = 'KeyW';
@@ -77,6 +78,7 @@ const KEY_THROW = 'KeyQ';
 const KEY_GREMLIN = 'KeyG';
 const KEY_DEV = 'Backslash';
 const KEY_METRICS = 'KeyM';
+const KEY_MENU = 'Escape';
 /** Pickup clicks high, the insert clunk lands low. */
 const CLICK_PITCH_PICKUP = 1.4;
 const CLICK_PITCH_INSERT = 0.7;
@@ -243,7 +245,41 @@ async function boot(): Promise<void> {
     onPractice: (on) => net.setPractice(on),
     onRole: (role) => net.setRole(role),
     onBots: (count) => net.setBots(count),
+    onLeave: () => {
+      void net.leave();
+      lobby.returnToLanding(endpoint === '');
+    },
   });
+  const menu = new Menu({
+    onResume: () => undefined,
+    onQuit: () => {
+      // Leave whatever we are in and go back to the start. Offline this is
+      // just a screen change; online it also hands the room back.
+      void net.leave();
+      soloBotCount = 0;
+      soloBots.setCount(0, () => undefined);
+      runners.length = 1;
+      washTargets.length = 0;
+      washTargets.push(runner);
+      pilot = 'runner';
+      camera.reset();
+      setHint();
+      lobby.returnToLanding(endpoint === '');
+    },
+    onToggleFpv: () => {
+      fpvMode = !fpvMode;
+      window.localStorage.setItem(FPV_STORAGE_KEY, fpvMode ? '1' : '0');
+    },
+    onToggleHazards: () => {
+      hazards.setEnabled(!hazards.isEnabled);
+      return hazards.isEnabled;
+    },
+    onRespawn: () => {
+      runner.respawn();
+      gremlin.exit();
+    },
+  });
+
   // With no server configured there is nothing to join — but the solo setup
   // still has to be reachable, so show the landing card with only that on it.
   if (soloMode) lobby.setSoloOnly();
@@ -517,6 +553,7 @@ async function boot(): Promise<void> {
     // Hit stop scales the whole world's clock for a few milliseconds.
     const frameDelta = juice.consumeHitstop(realDelta);
 
+    if (input.consumePress(KEY_MENU)) menu.toggle();
     if (input.consumePress(KEY_DEBUG)) overlay.toggle();
     if (devConsole && input.consumePress(KEY_DEV)) {
       devConsole.toggle();

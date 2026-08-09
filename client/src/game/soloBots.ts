@@ -89,7 +89,7 @@ export class SoloBots {
       }
       this.deadFor[i] = 0;
 
-      const target = this.pickTarget(bot, objective);
+      const target = this.pickTarget(bot, objective, i);
       const dx = target.point.x - bot.position.x;
       const dz = target.point.z - bot.position.z;
       const distance = Math.hypot(dx, dz);
@@ -112,11 +112,19 @@ export class SoloBots {
   private pickTarget(
     bot: Runner,
     objective: Objective,
+    index: number,
   ): { point: THREE.Vector3; interact: boolean; stopped: boolean } {
+    // Each bot has its own spot in the station rather than all aiming at the
+    // exact centre. Three bots converging on one point wedge each other in
+    // place, and the one still carrying a core can never push through to
+    // deliver it — the round stalls one core short with everybody standing in
+    // the zone looking like they are working.
+    const slot = this.slotFor(index);
+
     if (bot.carrying) {
-      const arrived = flat(bot.position, this.station) <= EMP_STATION_RADIUS * STATION_INSET;
+      const arrived = flat(bot.position, slot) <= STATION_ARRIVE;
       // The insert hold cancels on movement, so stop before holding.
-      return { point: this.station, interact: arrived, stopped: arrived };
+      return { point: slot, interact: arrived, stopped: arrived };
     }
 
     let best: THREE.Vector3 | null = null;
@@ -132,11 +140,24 @@ export class SoloBots {
 
     if (!best) {
       // Everything delivered: hold the zone, which is what the charge needs.
-      const arrived = flat(bot.position, this.station) <= EMP_STATION_RADIUS * STATION_INSET;
-      return { point: this.station, interact: false, stopped: arrived };
+      const arrived = flat(bot.position, slot) <= STATION_ARRIVE;
+      return { point: slot, interact: false, stopped: arrived };
     }
     const close = bestDistance <= CORE_PICKUP_RADIUS * PICKUP_INSET;
     return { point: best, interact: close, stopped: close };
+  }
+
+  /**
+   * Where this bot stands in the station: a point on a ring, spaced by the
+   * golden angle so any number of bots spreads evenly without a table.
+   */
+  private slotFor(index: number): THREE.Vector3 {
+    const angle = index * GOLDEN_ANGLE;
+    return SLOT.set(
+      this.station.x + Math.cos(angle) * STATION_RING,
+      0,
+      this.station.z + Math.sin(angle) * STATION_RING,
+    );
   }
 
   /** Put every bot back on the start line. */
@@ -152,8 +173,14 @@ function flat(a: THREE.Vector3, b: THREE.Vector3): number {
 }
 
 const ZERO = new THREE.Vector2(0, 0);
+const SLOT = new THREE.Vector3();
 /** Stop comfortably inside a zone rather than on its exact edge. */
 const STATION_INSET = 0.55;
+/** Ring radius bots wait on, and how close counts as arrived at their slot. */
+const STATION_RING = EMP_STATION_RADIUS * STATION_INSET;
+const STATION_ARRIVE = 0.9;
+/** Radians. Spreads any count evenly round a circle. */
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const PICKUP_INSET = 0.7;
 const ARRIVE_EPSILON = 0.35;
 /** Seconds a solo bot stays down before it gets back up. */

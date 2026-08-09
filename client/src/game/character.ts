@@ -86,6 +86,12 @@ export class Character {
       body.position.y = -bounds.min.y * scale;
     }
 
+    // The pack models face +Z; this game's facing convention is -Z, which is
+    // what the primitive body's snout pointed along and what the movement
+    // maths produces. Without this the character runs backwards and, standing
+    // still, stares straight down the camera.
+    body.rotation.y = Math.PI;
+
     // The pack names its nodes, so the head can be found without an index that
     // would silently point at an arm if the model were ever re-exported.
     this.head = body.getObjectByName('head') ?? null;

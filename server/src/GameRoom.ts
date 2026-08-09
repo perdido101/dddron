@@ -123,6 +123,11 @@ export class GameRoom extends Room<GameState> {
     this.onMessage('role', (client, role: string) => {
       if (this.state.phase !== 'lobby') return;
       this.setRole(client.sessionId, role);
+      // Fill the empty seat immediately rather than at kick-off. Deferring it
+      // meant the lobby showed nobody flying right up until the round began,
+      // so "a bot will fly" was true but invisible — and a player looking for
+      // the option to hand the drone to a bot could not find one.
+      this.ensureExactlyOneDrone(false);
     });
     this.onMessage('assignRole', (client, payload: { sessionId: string; role: string }) => {
       if (client.sessionId !== this.state.host || this.state.phase !== 'lobby') return;
@@ -133,6 +138,10 @@ export class GameRoom extends Room<GameState> {
     this.onMessage('setBots', (client, count: number) => {
       if (client.sessionId !== this.state.host || this.state.phase !== 'lobby') return;
       this.setBotCount(Math.max(0, Math.min(Math.floor(count) || 0, MAX_PLAYERS - 1)));
+      // Adding the first bot is what makes a bot drone possible, and removing
+      // the last one is what makes it impossible; either way the seat needs
+      // re-deciding now so the lobby list tells the truth.
+      if (this.state.phase === 'lobby') this.ensureExactlyOneDrone(false);
     });
 
     /**
@@ -391,7 +400,15 @@ export class GameRoom extends Room<GameState> {
    * against a bot drone is exactly what bots are for. With no bots in the
    * room there is nobody else to ask, so a human takes it.
    */
-  private ensureExactlyOneDrone(): void {
+  /**
+   * @param draftHuman whether a human may be pressed into the seat.
+   *
+   * False in the lobby: a player who picked "runner" with no bot to take over
+   * would be silently put straight back into the drone, which makes the role
+   * picker a lie. The lobby shows nobody flying and says so. True at kick-off,
+   * because a round with no drone is not a round.
+   */
+  private ensureExactlyOneDrone(draftHuman = true): void {
     let drones = 0;
     this.state.players.forEach((player) => {
       if (player.role === 'drone') drones += 1;
@@ -402,12 +419,18 @@ export class GameRoom extends Room<GameState> {
     this.state.players.forEach((player) => {
       if (!chosen && player.bot) chosen = player;
     });
-    if (!chosen) {
+    if (!chosen && draftHuman) {
       this.state.players.forEach((player) => {
         if (!chosen) chosen = player;
       });
     }
-    if (!chosen) return;
+    if (!chosen) {
+      // Nobody available: clear the seat so the lobby can say it is empty.
+      this.state.players.forEach((player) => {
+        if (player.role === 'drone') player.role = 'runner';
+      });
+      return;
+    }
     this.state.players.forEach((player) => {
       player.role = player === chosen ? 'drone' : 'runner';
     });

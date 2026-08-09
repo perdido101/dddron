@@ -359,9 +359,20 @@ export class Connection {
     };
   }
 
+  /**
+   * Leave the room.
+   *
+   * The reference is dropped BEFORE the await, not after. Clearing it
+   * afterwards left `snapshot()` returning a live room for the frames the
+   * handshake took, and the caller had already switched back to the lobby —
+   * so the next frame read `phase: playing` and hid it again, and quitting
+   * appeared to do nothing at all.
+   */
   async leave(): Promise<void> {
-    await this.room?.leave(true);
+    const room = this.room;
     this.room = null;
+    this.error = null;
+    await room?.leave(true);
   }
 }
 

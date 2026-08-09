@@ -12,6 +12,8 @@ export interface LobbyCallbacks {
   onPractice: (on: boolean) => void;
   onRole: (role: 'drone' | 'runner') => void;
   onBots: (count: number) => void;
+  /** Leave the room and go back to the landing screen. */
+  onLeave: () => void;
 }
 
 /**
@@ -42,6 +44,7 @@ export class Lobby {
   private readonly botCount: HTMLElement;
   private readonly roleDrone: HTMLButtonElement;
   private readonly roleRunner: HTMLButtonElement;
+  private readonly droneLine: HTMLElement;
   private ready = false;
   /** Last bot count we saw from the server, so ± can step from it. */
   private bots = 0;
@@ -89,10 +92,11 @@ export class Lobby {
             <button class="lobby-practice" data-on="0">OFF</button>
           </div>
           <div class="lobby-row">
-            <span>i want to</span>
-            <button class="lobby-role-drone">FLY</button>
-            <button class="lobby-role-runner">RUN</button>
+            <span>the drone</span>
+            <button class="lobby-role-drone">I FLY IT</button>
+            <button class="lobby-role-runner">A BOT FLIES</button>
           </div>
+          <p class="lobby-droneline"></p>
           <div class="lobby-row lobby-botrow">
             <span>bots</span>
             <button class="lobby-bots-down">−</button>
@@ -102,6 +106,7 @@ export class Lobby {
         </div>
         <button class="lobby-ready">READY</button>
         <button class="lobby-start" disabled>START MATCH</button>
+        <button class="lobby-leave">LEAVE ROOM</button>
         <p class="lobby-hint"></p>
       </div>
 
@@ -110,6 +115,7 @@ export class Lobby {
         <p class="lobby-result-cause"></p>
         <ul class="lobby-scores"></ul>
         <p class="lobby-awards"></p>
+        <button class="lobby-results-back">BACK TO THE LOBBY</button>
       </div>
     `;
     parent.appendChild(this.root);
@@ -132,6 +138,16 @@ export class Lobby {
     this.botCount = this.pick('.lobby-botcount');
     this.roleDrone = this.pick('.lobby-role-drone');
     this.roleRunner = this.pick('.lobby-role-runner');
+    this.droneLine = this.pick('.lobby-droneline');
+
+    // Every screen needs a way back out of it. Without these the only exit
+    // from a room was reloading the page.
+    this.pick<HTMLButtonElement>('.lobby-leave').onclick = () => this.callbacks.onLeave();
+    this.pick<HTMLButtonElement>('.lobby-results-back').onclick = () => {
+      this.landing.hidden = true;
+      this.room.hidden = false;
+      this.results.hidden = true;
+    };
 
     // Every control below only *asks*: the server decides and the next
     // snapshot paints the answer, so a rejected request simply does nothing.
@@ -216,6 +232,21 @@ export class Lobby {
    * thing that gives them bots and a choice of role, was unreachable exactly
    * when it was the only thing that worked.
    */
+  /**
+   * Back to the very start, from a round or a room.
+   *
+   * @param soloOnly whether there is no server to offer in the first place.
+   */
+  returnToLanding(soloOnly: boolean): void {
+    this.ready = false;
+    this.readyButton.textContent = 'READY';
+    this.landing.hidden = false;
+    this.room.hidden = true;
+    this.results.hidden = true;
+    if (soloOnly) this.setSoloOnly();
+    else this.show();
+  }
+
   setSoloOnly(): void {
     this.pick('.lobby-nick').hidden = true;
     this.pick('.lobby-create').hidden = true;
@@ -316,6 +347,17 @@ export class Lobby {
     const me = snapshot.players.find((player) => player.sessionId === selfId);
     this.roleDrone.dataset.on = me?.role === 'drone' ? '1' : '0';
     this.roleRunner.dataset.on = me?.role === 'runner' ? '1' : '0';
+
+    // Say out loud who is flying. "A bot will take it" was true before this
+    // and completely invisible, which is the same as not being offered.
+    const pilot = snapshot.players.find((player) => player.role === 'drone');
+    this.droneLine.textContent = !pilot
+      ? snapshot.botCount > 0
+        ? 'nobody is flying yet'
+        : 'nobody is flying — add a bot, or someone has to take it'
+      : pilot.sessionId === selfId
+        ? 'you are flying the drone'
+        : `${pilot.nickname} is flying the drone`;
 
     const humans = snapshot.players.filter((player) => !player.bot).length;
     const minimum = snapshot.practice ? PRACTICE_MIN_PLAYERS : MIN_PLAYERS;

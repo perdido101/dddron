@@ -331,6 +331,14 @@
       }
       .lobby-card button:disabled { background: #ccd6e2; color: #7d8b99; cursor: not-allowed; }
       .lobby-card button.lobby-solo { background: #dfe6ef; color: #46566a; }
+      .lobby-card button.lobby-leave,
+      .lobby-card button.lobby-results-back { background: #dfe6ef; color: #46566a; }
+      .lobby-droneline {
+        margin: 2px 0 8px;
+        font-size: 11px;
+        text-align: center;
+        opacity: 0.75;
+      }
       /* The solo block sits between JOIN and the solo button, so it needs a
          little air above it or it reads as part of the join row. */
       .lobby-solo-setup { margin-top: 12px; }
@@ -477,6 +485,58 @@
       }
       #roundsummary button:hover { background: #46586a; }
       .rs-note { margin-top: 6px; min-height: 13px; color: #7fd4a8; font-size: 10px; }
+      /* In-game menu (Escape). Sits above the HUD but below the boot error. */
+      #menu {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: rgba(20, 27, 34, 0.78);
+        backdrop-filter: blur(3px);
+        z-index: 41;
+      }
+      #menu[hidden] { display: none; }
+      .menu-card {
+        width: 340px;
+        padding: 24px 26px 22px;
+        border-radius: 16px;
+        background: #f4f7fb;
+        color: #223;
+        text-align: center;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+      }
+      .menu-card h2 {
+        margin: 0 0 16px;
+        font-size: 24px;
+        letter-spacing: 0.18em;
+      }
+      .menu-card button {
+        width: 100%;
+        padding: 11px;
+        margin-bottom: 8px;
+        border: 0;
+        border-radius: 9px;
+        background: #dfe6ef;
+        color: #35435a;
+        font: inherit;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        cursor: pointer;
+      }
+      .menu-card button:hover { background: #ccd8e6; }
+      .menu-card button.menu-resume { background: #7fd4a8; color: #12301f; }
+      .menu-card button.menu-quit { background: #f0a0a8; color: #3d1a1f; }
+      .menu-card button.menu-hazards[data-on='0'] { background: #ccd6e2; color: #7d8b99; }
+      .menu-keys {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid #dbe3ec;
+        font-size: 11px;
+        line-height: 1.75;
+        text-align: left;
+        opacity: 0.7;
+      }
       #boot {
         position: fixed;
         inset: 0;

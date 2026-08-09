@@ -415,31 +415,26 @@ export class Runner {
     });
     const speedRatio = Math.min(speed / RUN_SPEED, 1);
 
-    // Body and head are steered separately.
+    // Body and head are steered separately, and the BODY does the work.
     //
-    // The body points where it is going, and keeps pointing there while you
-    // look around — spinning a whole torso every time the camera moves reads
-    // as a turret, not a person. The head takes up the difference, and only
-    // when the difference outgrows a neck does the body come round to meet it.
-    if (speed > MOVE_EPSILON) {
-      const target = Math.atan2(-this.realised.x, -this.realised.z);
-      this.facing = turnToward(this.facing, target, FACING_TURN_RATE * frameDelta);
-    }
+    // Running, it points where it is going. Standing still, it comes round to
+    // face the way the camera is looking — which is forward, from the player's
+    // seat. The head only ever holds the leftover while the body catches up,
+    // so it sits neutral almost all the time and turns as a glance, never as a
+    // permanent crick toward the camera.
+    const target = speed > MOVE_EPSILON
+      ? Math.atan2(-this.realised.x, -this.realised.z)
+      : lookYaw;
+    this.facing = turnToward(this.facing, target, FACING_TURN_RATE * frameDelta);
 
-    const offset = shortestAngle(this.facing, lookYaw);
-    const look = THREE.MathUtils.clamp(offset, -HEAD_YAW_MAX, HEAD_YAW_MAX);
-    // Ease the neck so a flick of the mouse does not snap the head round.
-    this.headYaw += (look - this.headYaw) * (1 - Math.exp(-frameDelta / HEAD_TURN_EASE));
+    const offset = THREE.MathUtils.clamp(
+      shortestAngle(this.facing, lookYaw),
+      -HEAD_YAW_MAX,
+      HEAD_YAW_MAX,
+    );
+    // Ease the neck so a flick of the mouse glides rather than snapping.
+    this.headYaw += (offset - this.headYaw) * (1 - Math.exp(-frameDelta / HEAD_TURN_EASE));
     this.character?.setHeadYaw(this.headYaw);
-
-    if (Math.abs(offset) > HEAD_YAW_MAX) {
-      // Looked past what the neck can reach: the shoulders follow.
-      this.facing = turnToward(
-        this.facing,
-        lookYaw - Math.sign(offset) * HEAD_YAW_MAX,
-        FACING_TURN_RATE * frameDelta,
-      );
-    }
     this.figure.rotation.y = this.facing;
 
     this.squashTimer = Math.min(this.squashTimer + frameDelta, SQUASH_RECOVER_TIME);

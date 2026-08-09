@@ -123,22 +123,18 @@ export class RemoteAvatars {
       }
 
       // Runners report where they are LOOKING, which is the camera heading.
-      // Turning the whole body to that would make every remote player pirouette
-      // whenever they glanced around, so the body follows where they are
-      // actually travelling and the head takes the difference — the same split
-      // the local runner uses, driven from the only yaw the wire carries.
-      if (avatar.speed > REMOTE_FACING_EPSILON) {
-        avatar.travelYaw = Math.atan2(
-          -(avatar.group.position.x - avatar.previous.x),
-          -(avatar.group.position.z - avatar.previous.z),
-        );
-      }
+      // The body follows where they are actually travelling, and settles onto
+      // the reported heading once they stop — the same split the local runner
+      // uses, so a head is a glance and never a permanent crick.
+      avatar.travelYaw = avatar.speed > REMOTE_FACING_EPSILON
+        ? Math.atan2(
+            -(avatar.group.position.x - avatar.previous.x),
+            -(avatar.group.position.z - avatar.previous.z),
+          )
+        : avatar.travelYaw + shortestAngle(avatar.travelYaw, avatar.targetYaw) * blend;
+
       const offset = shortestAngle(avatar.travelYaw, avatar.targetYaw);
       const look = Math.max(-HEAD_YAW_MAX, Math.min(offset, HEAD_YAW_MAX));
-      // Past what a neck reaches, the shoulders come round to meet the gaze.
-      if (Math.abs(offset) > HEAD_YAW_MAX) {
-        avatar.travelYaw += (offset - look) * blend;
-      }
       avatar.group.rotation.y += shortestAngle(avatar.group.rotation.y, avatar.travelYaw) * blend;
       avatar.character.setHeadYaw(look);
     }
