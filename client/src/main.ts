@@ -296,6 +296,8 @@ async function boot(): Promise<void> {
   let gremlinLift = 0;
   let lastInserted = 0;
   let lastCarrying = false;
+  /** Insert count when carrying last changed, to tell a delivery from a drop. */
+  let lastInsertedForCarry = 0;
   const testScript: { n: number; x: number; y: number; lift: number }[] = [];
   const testInput = { move: new THREE.Vector2(), lift: 0 };
   const testEndPos = new THREE.Vector3();
@@ -531,9 +533,15 @@ async function boot(): Promise<void> {
         if (input.consumePress(KEY_JUMP)) runner.queueJump();
         if (input.consumePress(KEY_SWAT)) {
           // The swing plays whether or not it lands: a whiff you cannot see is
-          // indistinguishable from an input that was dropped.
+          // indistinguishable from an input that was dropped. The connect gets
+          // its own heavier sound so a hit and a miss are told apart by ear.
           runner.playSwat();
-          if (hazards.swat(runner, drone, camera.heading)) juice.swatConnected();
+          if (hazards.swat(runner, drone, camera.heading)) {
+            juice.swatConnected();
+            sfx.thud();
+          } else {
+            sfx.whoosh();
+          }
         }
         if (input.consumePress(KEY_THROW)) hazards.toggleProp(runner, camera.heading);
       } else {
@@ -693,6 +701,12 @@ async function boot(): Promise<void> {
     gremlin.render(frameDelta);
     confetti.update(frameDelta);
     hud.update(fuse);
+    // Only a runner needs the warning: the pilot knows exactly where it is.
+    hud.updateProximity(
+      pilot === 'drone' ? Infinity : runner.position.distanceTo(drone.position),
+      frameDelta,
+      runner.alive,
+    );
     whine.update(
       drone.object.position,
       view.camera,
@@ -837,8 +851,13 @@ async function boot(): Promise<void> {
       ? (snapshot.players.find((player) => player.sessionId === net.sessionId)?.carrying ?? false)
       : runner.carrying;
     if (carrying !== lastCarrying) {
+      // Losing a core has to sound like a loss. Without this a runner blown
+      // off a pad keeps running for the station with empty hands.
+      const inserted = status.inserted > lastInsertedForCarry;
+      lastInsertedForCarry = status.inserted;
+      if (carrying) sfx.click(CLICK_PITCH_PICKUP);
+      else if (!inserted) sfx.fumble();
       lastCarrying = carrying;
-      if (lastCarrying) sfx.click(CLICK_PITCH_PICKUP);
     }
 
     input.endFrame();

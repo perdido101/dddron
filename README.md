@@ -21,7 +21,7 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 | 7 | Hazards and counterplay | done |
 | 8 | Elimination and spectator gremlins | done |
 | 9 | Match structure, rotation and scoring | done |
-| 10 | Juice, audio, procedural art | partial — font shipped, other sourced art outstanding |
+| 10 | Juice, audio, procedural art | done — CC0 assets in, generated audio outstanding |
 | 11 | Deploy — client on Pages, server on Render | done |
 
 Pre-playtest handoff (BUZZKILL_HANDOFF_02):
@@ -121,6 +121,36 @@ them, how they came loose, how long every pad was blocked, how long the drone
 was stranded or down, and how long the EMP charged versus drained. Copy CSV
 puts the session's rounds on the clipboard; the server keeps its own window at
 `/rounds.csv` and medians at `/stats`.
+
+## Assets
+
+Everything shipped is CC0 or OFL, downloaded without an account:
+
+| Asset | Source | Licence | Size |
+| --- | --- | --- | --- |
+| Runner mesh + 27 animation clips | Kenney "Blocky Characters" | CC0 | 134 kB |
+| Throwable props — crate, bucket, barrel, rock | Kenney "Survival Kit" | CC0 | 92 kB |
+| UI font — Fredoka | Google Fonts | OFL 1.1 | 29 kB |
+
+The manifest routed animation to Mixamo, which needs an Adobe account. It turned
+out not to be needed: the Kenney GLB already carries idle, walk, sprint, die,
+pick-up, holding-both and attack-melee, which is every P0 and P1 clip on the
+list. Nothing is retargeted and no account was used.
+
+Everything else is generated in code — the arena, pads, EMP station, cores,
+drone, confetti, the floor's ambient occlusion, the sky gradient, and every
+sound. The synthesised sounds stand in for the manifest's ElevenLabs files and
+are marked `PLACEHOLDER` where they do.
+
+Models load **asynchronously and optionally**. The game is playable on the first
+frame with primitive bodies and upgrades in place when the models arrive; if a
+fetch fails it logs and keeps the primitives. A decoration must never be able to
+stop the thing it decorates.
+
+Still outstanding, all needing an account, credits or a licence decision:
+generated audio (ElevenLabs), music (Suno), and the drone / EMP station / core
+meshes (Higgsfield). The primitives standing in for those are deliberate, not
+forgotten.
 
 ## Layout
 

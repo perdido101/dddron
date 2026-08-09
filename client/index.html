@@ -208,6 +208,23 @@
         pointer-events: none;
         z-index: 12;
       }
+      /* Proximity vignette (manifest, PROC, P1): a red edge glow that grows as
+         the drone closes. A gradient on one element rather than a post
+         process — the effect is a warning, and a warning that costs a render
+         pass is a bad trade. */
+      #hud-vignette {
+        position: fixed;
+        inset: 0;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 13;
+        background: radial-gradient(
+          ellipse at center,
+          rgba(255, 77, 94, 0) 35%,
+          rgba(255, 77, 94, 0.35) 72%,
+          rgba(255, 61, 79, 0.85) 100%
+        );
+      }
       #hud-flash {
         position: fixed;
         inset: 0;

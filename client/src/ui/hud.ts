@@ -3,6 +3,9 @@ import {
   BATTERY_COLOR_FULL,
   BATTERY_COLOR_LOW,
   BATTERY_LOW_FRACTION,
+  VIGNETTE_MAX_OPACITY,
+  VIGNETTE_PULSE_HZ,
+  VIGNETTE_RADIUS,
 } from '@shared/constants';
 
 import type { Fuse } from '@shared/fuse';
@@ -24,8 +27,10 @@ export class Hud {
   private readonly objective: HTMLElement;
   private readonly objectiveBar: HTMLElement;
   private readonly prompt: HTMLElement;
+  private readonly vignette: HTMLElement;
   private readonly flash: HTMLElement;
   private readonly victory: HTMLElement;
+  private vignetteClock = 0;
 
   constructor(parent: HTMLElement = document.body) {
     this.root = document.createElement('div');
@@ -66,6 +71,10 @@ export class Hud {
     this.prompt.id = 'hud-prompt';
     parent.appendChild(this.prompt);
 
+    this.vignette = document.createElement('div');
+    this.vignette.id = 'hud-vignette';
+    parent.appendChild(this.vignette);
+
     this.flash = document.createElement('div');
     this.flash.id = 'hud-flash';
     parent.appendChild(this.flash);
@@ -104,6 +113,30 @@ export class Hud {
 
     this.flash.style.opacity = String(flash);
     this.victory.style.display = status.fired && flash < 0.5 ? 'block' : 'none';
+  }
+
+  /**
+   * Proximity vignette (manifest, PROC, P1).
+   *
+   * Third person hides the one thing that matters most: the drone behind you.
+   * The glow answers "how close is it" without turning round, and it pulses
+   * faster the nearer it gets, so the edge of the screen carries the same
+   * information the prop whine does for anyone playing without sound.
+   *
+   * @param distance metres from the drone. Infinity when there is none.
+   */
+  updateProximity(distance: number, frameDelta: number, alive: boolean): void {
+    if (!alive || !Number.isFinite(distance) || distance >= VIGNETTE_RADIUS) {
+      this.vignette.style.opacity = '0';
+      return;
+    }
+    // Squared so the warning stays quiet across the room and bites late,
+    // rather than sitting at half brightness for most of the arena.
+    const closeness = 1 - distance / VIGNETTE_RADIUS;
+    const strength = closeness * closeness;
+    this.vignetteClock += frameDelta * VIGNETTE_PULSE_HZ * (0.5 + closeness) * Math.PI * 2;
+    const pulse = 0.75 + 0.25 * Math.sin(this.vignetteClock);
+    this.vignette.style.opacity = String(strength * VIGNETTE_MAX_OPACITY * pulse);
   }
 
   update(fuse: Fuse): void {

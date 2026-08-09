@@ -230,6 +230,98 @@ export class Sfx {
     osc.stop(now + CLICK_SECONDS);
   }
 
+  /**
+   * PLACEHOLDER for the ElevenLabs "swat whoosh" — the swing, whether or not
+   * it lands. Filtered noise swept downward: air moving past a hand.
+   */
+  whoosh(): void {
+    this.noiseBurst(WHOOSH_SECONDS, WHOOSH_GAIN, WHOOSH_FROM_HZ, WHOOSH_TO_HZ, 'bandpass');
+  }
+
+  /**
+   * PLACEHOLDER for the ElevenLabs "swat connect" — heavier than the whoosh,
+   * with a low thud under it so a hit is audibly different from a miss.
+   */
+  thud(): void {
+    const context = this.context;
+    if (!context) return;
+    const now = context.currentTime;
+    this.noiseBurst(THUD_SECONDS, THUD_GAIN, THUD_FROM_HZ, THUD_TO_HZ, 'lowpass');
+
+    const osc = context.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(THUD_TONE_HZ, now);
+    osc.frequency.exponentialRampToValueAtTime(THUD_TONE_HZ * 0.4, now + THUD_SECONDS);
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(THUD_GAIN, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + THUD_SECONDS);
+    osc.connect(gain);
+    gain.connect(context.destination);
+    osc.start(now);
+    osc.stop(now + THUD_SECONDS);
+  }
+
+  /**
+   * PLACEHOLDER for the ElevenLabs "core drop / fumble". Deliberately a
+   * downward clatter: losing a core has to sound like a loss, or a player
+   * blown off a pad will not notice they are no longer carrying anything.
+   */
+  fumble(): void {
+    const context = this.context;
+    if (!context) return;
+    const now = context.currentTime;
+    for (let i = 0; i < FUMBLE_TAPS; i += 1) {
+      const osc = context.createOscillator();
+      osc.type = 'square';
+      const at = now + i * FUMBLE_SPACING;
+      osc.frequency.setValueAtTime(FUMBLE_BASE_HZ * (1 - i * FUMBLE_FALL), at);
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(FUMBLE_GAIN * (1 - i / FUMBLE_TAPS), at);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + FUMBLE_SPACING);
+      osc.connect(gain);
+      gain.connect(context.destination);
+      osc.start(at);
+      osc.stop(at + FUMBLE_SPACING);
+    }
+  }
+
+  /**
+   * Shared shape for the noise-based effects: a burst whose filter sweeps
+   * between two frequencies. Every "whoosh"-family sound is this with
+   * different numbers, so they stay a family rather than four unrelated hacks.
+   */
+  private noiseBurst(
+    seconds: number,
+    peak: number,
+    fromHz: number,
+    toHz: number,
+    filterType: BiquadFilterType,
+  ): void {
+    const context = this.context;
+    if (!context) return;
+    const now = context.currentTime;
+
+    const length = Math.floor(context.sampleRate * seconds);
+    const buffer = context.createBuffer(1, length, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i += 1) data[i] = Math.random() * 2 - 1;
+
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    const filter = context.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.setValueAtTime(fromHz, now);
+    filter.frequency.exponentialRampToValueAtTime(toHz, now + seconds);
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(peak, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + seconds);
+
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(context.destination);
+    source.start(now);
+  }
+
   /** @param charge 0-1 across EMP_CHARGE_TIME; rises into the fire. */
   setEmpCharge(charge: number): void {
     const context = this.context;
@@ -251,6 +343,23 @@ const POP_GAIN = 0.35;
 const CLICK_BASE_HZ = 660;
 const CLICK_SECONDS = 0.07;
 const CLICK_GAIN = 0.12;
+/** Swat swing: a fast downward sweep, so it reads as air rather than impact. */
+const WHOOSH_SECONDS = 0.18;
+const WHOOSH_GAIN = 0.16;
+const WHOOSH_FROM_HZ = 2600;
+const WHOOSH_TO_HZ = 400;
+/** Swat connect: longer, lower, with a sine thud beneath the noise. */
+const THUD_SECONDS = 0.22;
+const THUD_GAIN = 0.3;
+const THUD_FROM_HZ = 1400;
+const THUD_TO_HZ = 180;
+const THUD_TONE_HZ = 150;
+/** Core fumble: a descending clatter of square taps. */
+const FUMBLE_TAPS = 4;
+const FUMBLE_SPACING = 0.045;
+const FUMBLE_BASE_HZ = 520;
+const FUMBLE_FALL = 0.17;
+const FUMBLE_GAIN = 0.13;
 const EMP_WHINE_BASE_HZ = 90;
 const EMP_WHINE_RISE_HZ = 620;
 const EMP_WHINE_GAIN = 0.1;
