@@ -58,6 +58,7 @@ import {
   WALL_BOUNCE,
 } from '@shared/constants';
 
+import { addRimLight } from '../engine/assets';
 import { InterpolatedTransform } from '../engine/interpolation';
 import type { Physics } from '../engine/physics';
 import type { Fuse } from '@shared/fuse';
@@ -95,7 +96,13 @@ export class Drone {
   private readonly transform: InterpolatedTransform;
   private readonly chassis = new THREE.Group();
   private readonly rotors: THREE.Mesh[] = [];
-  private readonly material = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
+  private readonly material = (() => {
+    const material = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
+    // The drone must never blend into rooftops or sky (handoff 03): cool
+    // grey-white body plus a fresnel rim that draws its edge at range.
+    addRimLight(material);
+    return material;
+  })();
   private gaugeFill!: THREE.Mesh;
   private readonly gaugeMaterial = new THREE.MeshBasicMaterial({ color: BATTERY_COLOR_FULL });
   private halo!: THREE.Mesh;

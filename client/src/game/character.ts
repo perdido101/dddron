@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 import { CAPSULE_HEIGHT, RUN_SPEED } from '@shared/constants';
+
+import { addRimLight, loadAsset } from '../engine/assets';
 
 /** What the character needs in order to pick a clip. */
 export interface CharacterState {
@@ -69,6 +70,9 @@ export class Character {
         map: source.map ?? null,
         color: 0xffffff,
       });
+      // Rim as a material feature (session 7): a fresnel edge that keeps the
+      // silhouette readable at 40 m, on top of the scene's rim light.
+      addRimLight(material);
       node.material = material;
       node.castShadow = true;
       this.materials.push(material);
@@ -200,8 +204,7 @@ export class Character {
 }
 
 /**
- * Load the character once for the whole session.
- *
+ * Load the character once for the whole session, via the asset manifest.
  * Resolves to nulls rather than rejecting: the game must start even if the
  * asset does not, and every caller already has a primitive fallback.
  */
@@ -209,58 +212,24 @@ export async function loadCharacter(): Promise<{
   scene: THREE.Object3D | null;
   animations: THREE.AnimationClip[];
 }> {
-  try {
-    const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(CHARACTER_URL);
-    return { scene: gltf.scene, animations: gltf.animations };
-  } catch (cause) {
-    console.warn('BUZZKILL: character model unavailable, using primitives —', cause);
-    return { scene: null, animations: [] };
-  }
+  return loadAsset('runner.character');
 }
 
 /**
- * Throwable props: Kenney "Survival Kit" (CC0), the manifest's crate / bucket
- * / ball line item. Loaded together and handed to Hazards; a failure leaves
- * the spheres in place, which are perfectly playable.
+ * Throwable props, via the manifest. A failure leaves the spheres in place,
+ * which are perfectly playable.
  */
 export async function loadProps(): Promise<THREE.Object3D[]> {
-  const loader = new GLTFLoader();
-  const loaded = await Promise.all(
-    PROP_FILES.map(async (name) => {
-      try {
-        const gltf = await loader.loadAsync(
-          new URL(`models/kenney-survival/${name}.glb`, document.baseURI).href,
-        );
-        // Kenney ships these unlit too; relight them for the same reason the
-        // character is relit.
-        gltf.scene.traverse((node) => {
-          if (!(node instanceof THREE.Mesh)) return;
-          const source = node.material as THREE.MeshStandardMaterial;
-          node.material = new THREE.MeshLambertMaterial({ map: source.map ?? null });
-          node.castShadow = true;
-        });
-        return gltf.scene as THREE.Object3D;
-      } catch (cause) {
-        console.warn(`BUZZKILL: prop "${name}" unavailable —`, cause);
-        return null;
-      }
-    }),
-  );
-  return loaded.filter((scene): scene is THREE.Object3D => scene !== null);
+  const names = ['prop.throwable.0', 'prop.throwable.1', 'prop.throwable.2', 'prop.throwable.3'];
+  const loaded = await Promise.all(names.map((name) => loadAsset(name)));
+  return loaded
+    .map((asset) => asset.scene)
+    .filter((scene): scene is THREE.Object3D => scene !== null);
 }
-
-const PROP_FILES = ['box', 'bucket', 'barrel', 'rock-a'] as const;
 
 /** Scratch values for the head turn, so the render loop allocates nothing. */
 const HEAD_SPIN = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
-
-/**
- * Relative so the same bundle works at a domain root and under the GitHub
- * Pages project subpath, matching vite's `base: './'`.
- */
-const CHARACTER_URL = new URL('models/kenney-blocky/character.glb', document.baseURI).href;
 /** Seconds of blend between clips. */
 const CROSSFADE = 0.18;
 /** Speed ratios at which the clip changes. */

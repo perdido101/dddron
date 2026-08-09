@@ -31,6 +31,15 @@ export class SoloBots {
   private readonly move = new THREE.Vector2();
   /** Seconds each bot has been down, for the offline respawn. */
   private readonly deadFor: number[] = [];
+  /** Per-bot stuck detection: an anchor point and how long ago it was set. */
+  private readonly anchorX: number[] = [];
+  private readonly anchorZ: number[] = [];
+  private readonly anchorAge: number[] = [];
+  /** While positive, steer sideways instead of straight at the target. */
+  private readonly detourFor: number[] = [];
+  private readonly detourSign: number[] = [];
+  /** Dev-only: how often the stuck trigger has fired, per bot. */
+  readonly stuckTriggers: number[] = [];
 
   constructor(
     private readonly physics: Physics,
@@ -98,10 +107,51 @@ export class SoloBots {
         // Runner.fixedUpdate takes camera-relative input, so feed it a heading
         // pointing at the target and a constant "forward". The bot then uses
         // exactly the acceleration curves a player does.
-        const heading = Math.atan2(-dx, -dz);
+        let heading = Math.atan2(-dx, -dz);
+
+        // No pathfinding, so a bot pushing at a wall would push forever — the
+        // failure seen live was a core knocked loose against a stone wall,
+        // with one bot pinned at the pickup boundary and another shoving the
+        // scenery behind it. "Stuck" means no NET movement from an anchor
+        // point over a whole window — a per-step speed check retriggers off
+        // its own recovery pivot and turns the brain into a permanent drunken
+        // stagger. When it fires, do what a player does: hop (loose hands
+        // only — carrying forbids the jump by design) and angle sideways to
+        // slide around the obstacle.
+        if ((this.detourFor[i] ?? 0) > 0) {
+          this.detourFor[i] = (this.detourFor[i] ?? 0) - dt;
+          heading += (this.detourSign[i] ?? 1) * Math.PI * 0.5;
+          // The detour is not evidence either way; judge it fresh afterwards.
+          this.anchorX[i] = bot.position.x;
+          this.anchorZ[i] = bot.position.z;
+          this.anchorAge[i] = 0;
+        } else {
+          const away = Math.hypot(
+            bot.position.x - (this.anchorX[i] ?? bot.position.x),
+            bot.position.z - (this.anchorZ[i] ?? bot.position.z),
+          );
+          this.anchorAge[i] = (this.anchorAge[i] ?? 0) + dt;
+          if (away > STUCK_CLEAR) {
+            this.anchorX[i] = bot.position.x;
+            this.anchorZ[i] = bot.position.z;
+            this.anchorAge[i] = 0;
+          } else if ((this.anchorAge[i] ?? 0) > STUCK_WINDOW && bot.grounded) {
+            this.stuckTriggers[i] = (this.stuckTriggers[i] ?? 0) + 1;
+            this.detourFor[i] = DETOUR_TIME;
+            // Alternate sides each trigger, so a wall too long for one detour
+            // gets probed both ways instead of the same dead end repeatedly.
+            this.detourSign[i] = -(this.detourSign[i] ?? -1);
+            bot.queueJump();
+          }
+        }
+
         this.move.set(0, 1);
         bot.fixedUpdate(dt, this.move, heading);
       } else {
+        // Standing where it means to stand is not stuck.
+        this.anchorX[i] = bot.position.x;
+        this.anchorZ[i] = bot.position.z;
+        this.anchorAge[i] = 0;
         bot.fixedUpdate(dt, ZERO, 0);
       }
       bot.interacting = target.interact;
@@ -183,6 +233,12 @@ const STATION_ARRIVE = 0.9;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const PICKUP_INSET = 0.7;
 const ARRIVE_EPSILON = 0.35;
+/** Net displacement that proves a bot is still making progress. */
+const STUCK_CLEAR = 0.9;
+/** Seconds without clearing STUCK_CLEAR before the hop-and-detour kicks in. */
+const STUCK_WINDOW = 1.2;
+/** Seconds spent angling sideways after each stuck trigger. */
+const DETOUR_TIME = 1.1;
 /** Seconds a solo bot stays down before it gets back up. */
 const SOLO_BOT_RESPAWN = 6.0;
 /** Matches the server's runner spawn arc. */

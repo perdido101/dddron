@@ -50,7 +50,7 @@ export class PowerCore {
 
     this.mesh = new THREE.Mesh(
       new THREE.CapsuleGeometry(CORE_RADIUS, CORE_RADIUS * 1.1),
-      new THREE.MeshLambertMaterial({ color: COLOR_CORE, emissive: COLOR_CORE, emissiveIntensity: 0.35 }),
+      new THREE.MeshLambertMaterial({ color: COLOR_CORE, emissive: COLOR_CORE, emissiveIntensity: 0.7 }),
     );
     this.mesh.castShadow = true;
     scene.add(this.mesh);
@@ -60,7 +60,10 @@ export class PowerCore {
     this.shaft = new THREE.Mesh(
       new THREE.CylinderGeometry(CORE_SHAFT_RADIUS * 2.2, CORE_SHAFT_RADIUS, CORE_SHAFT_HEIGHT, 12, 1, true),
       new THREE.MeshBasicMaterial({
-        color: COLOR_CORE_CARRIED,
+        // Saturated core cyan, not the pale carried tint: an additive shaft
+        // in a washed-out colour disappears against a sunlit floor, and this
+        // beam's whole job is to be seen over rooftops from 40 m.
+        color: COLOR_CORE,
         transparent: true,
         opacity: CORE_SHAFT_OPACITY,
         blending: THREE.AdditiveBlending,

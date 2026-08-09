@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+import { loadAsset } from '../engine/assets';
 import {
   ARENA_HALF,
   BARN,
@@ -75,9 +75,11 @@ export class Village {
       mesh.instanceMatrix.needsUpdate = true;
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      // The village wraps the arena, so a single bounding sphere round the
-      // whole thing would fail the frustum test only when off screen anyway.
-      mesh.frustumCulled = false;
+      // Session 7 culling: a real per-batch bounding sphere (computed over
+      // the instances) so the frustum test works, instead of the earlier
+      // frustumCulled = false. Looking north culls the batches whose
+      // instances all sit south — with buildings in the way, that matters.
+      mesh.computeBoundingSphere();
       this.scene.add(mesh);
     }
     this.batches.clear();
@@ -211,32 +213,24 @@ export interface Pieces {
  * a failed fetch costs some scenery and never the game.
  */
 export async function loadVillage(): Promise<Pieces> {
-  const loader = new GLTFLoader();
-  const get = async (kit: string, name: string): Promise<THREE.Object3D | null> => {
-    try {
-      const url = new URL(`models/${kit}/${name}.glb`, document.baseURI).href;
-      return (await loader.loadAsync(url)).scene;
-    } catch (cause) {
-      console.warn(`BUZZKILL: village piece "${name}" unavailable —`, cause);
-      return null;
-    }
-  };
-  const town = (name: string): Promise<THREE.Object3D | null> => get('kenney-town', name);
-  const nature = (name: string): Promise<THREE.Object3D | null> => get('kenney-nature', name);
+  const get = async (name: string): Promise<THREE.Object3D | null> =>
+    (await loadAsset(name)).scene;
 
   const [
     wall, wallDoor, wallWindow, roof, roofGable, fence, cart, stall, lantern, townTree,
     grass, grassLarge, flowerRed, flowerYellow, tree, treeBlocks, stone,
   ] = await Promise.all([
-    town('wall'), town('wall-door'), town('wall-window-shutters'), town('roof'),
-    town('roof-gable'), town('fence'), town('cart'), town('stall-red'), town('lantern'),
-    town('tree'),
-    nature('grass'), nature('grass_large'), nature('flower_redA'), nature('flower_yellowA'),
-    nature('tree_default'), nature('tree_blocks'), nature('stone_smallA'),
+    get('village.wall'), get('village.wallDoor'), get('village.wallWindow'),
+    get('village.roof'), get('village.roofGable'), get('village.fence'),
+    get('village.cart'), get('village.stall'), get('village.lantern'),
+    get('village.townTree'),
+    get('village.grass'), get('village.grassLarge'), get('village.flowerRed'),
+    get('village.flowerYellow'), get('village.tree'), get('village.treeBlocks'),
+    get('village.stone'),
   ]);
 
   return {
-    wall, wallDoor, wallWindow, roof, roofGable, fence, cart, stall, lantern, townTree,
+    wall, wallDoor, wallWindow, roof, roofGable, cart, stall, lantern, townTree, fence,
     grass, grassLarge, flowerRed, flowerYellow, tree, treeBlocks, stone,
   };
 }

@@ -48,6 +48,7 @@ import {
   STRETCH_JUMP_SCALE,
 } from '@shared/constants';
 
+import { addRimLight } from '../engine/assets';
 import { InterpolatedTransform } from '../engine/interpolation';
 import type { Character } from './character';
 import type { Physics } from '../engine/physics';
@@ -86,7 +87,11 @@ export class Runner {
   private readonly pivot = new THREE.Group();
   private readonly figure = new THREE.Group();
   /** Shared by the body and the facing marker, so a colourway tints both. */
-  private readonly bodyMaterial = new THREE.MeshLambertMaterial({ color: COLOR_RUNNER });
+  private readonly bodyMaterial = (() => {
+    const material = new THREE.MeshLambertMaterial({ color: COLOR_RUNNER });
+    addRimLight(material);
+    return material;
+  })();
   /** The capsule stand-in, hidden once the real character model arrives. */
   private readonly primitives = new THREE.Group();
   private character: Character | null = null;

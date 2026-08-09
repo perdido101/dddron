@@ -504,9 +504,9 @@ export const BATTERY_GAUGE_HEIGHT = 0.16;
  * Charge pad state colours (asset manifest, PROC, P0):
  * green available, red core-blocked, blue drone docked, grey sabotaged.
  */
-export const PAD_COLOR_AVAILABLE = 0x7fd4a8;
-export const PAD_COLOR_BLOCKED = 0xff6b7a;
-export const PAD_COLOR_DOCKED = 0x8ab6ff;
+export const PAD_COLOR_AVAILABLE = 0x2fd9ff;
+export const PAD_COLOR_BLOCKED = 0xff3df0;
+export const PAD_COLOR_DOCKED = 0x9b4dff;
 export const PAD_COLOR_SABOTAGED = 0x9aa2a8;
 /** Pad ring rotation, so an active pad reads as live (manifest, PROC, P1). */
 export const PAD_RING_SPIN = 0.5;
@@ -531,7 +531,7 @@ export const RUNNER_COLORWAYS = [
 ] as const;
 
 /** unspecified. Battery gauge colours, readable across the arena (phase 10). */
-export const BATTERY_COLOR_FULL = 0x7fd4a8;
+export const BATTERY_COLOR_FULL = 0x35e6ff;
 export const BATTERY_COLOR_LOW = 0xffd166;
 export const BATTERY_COLOR_CRITICAL = 0xff4d5e;
 /** Battery fraction below which the gauge reads "low". */
@@ -590,8 +590,9 @@ export const CORE_DROP_PUSH = 5.0;
 export const CORE_BOB_HEIGHT = 0.18;
 export const CORE_BOB_HZ = 0.55;
 export const CORE_SPIN_RATE = 1.1;
-export const COLOR_CORE = 0xffd166;
-export const COLOR_CORE_CARRIED = 0xfff3b0;
+/** Handoff 03: gameplay objects live on cyan/magenta, hues the village palette never uses. */
+export const COLOR_CORE = 0x35e6ff;
+export const COLOR_CORE_CARRIED = 0xa9f6ff;
 
 /**
  * unspecified. Juice pass (phase 10). Shake is in metres of camera offset,
@@ -760,11 +761,12 @@ export function roundsPerMatch(playerCount: number): number {
 export const COLOR_SKY = 0xbfe4f2;
 export const COLOR_GROUND = 0xd8d3c6;
 export const COLOR_WALL = 0xc7c0b2;
-export const COLOR_PROP = 0xb9c6cf;
+/** Drone body: cool grey-white so it never blends into rooftops or sky. */
+export const COLOR_PROP = 0xe6ecf2;
 /** Hedgerow green — greybox, but a hedge that is not green reads as a wall. */
 export const COLOR_HEDGE = 0x8fbf7f;
-export const COLOR_CHARGE_PAD = 0x7fd4a8;
-export const COLOR_EMP_STATION = 0x9ba8f0;
+export const COLOR_CHARGE_PAD = 0x2fd9ff;
+export const COLOR_EMP_STATION = 0x35e6ff;
 export const COLOR_RUNNER = 0xf28f8f;
 export const COLOR_RUNNER_HEAD = 0xffe3c9;
 export const COLOR_DEBUG_CUBE = 0xf5c76a;
@@ -855,8 +857,8 @@ export const PAD_PULSE_DEPTH = 0.45;
  * arena rather than only at conversational distance.
  */
 export const CORE_SHAFT_RADIUS = 0.42;
-export const CORE_SHAFT_HEIGHT = 7.0;
-export const CORE_SHAFT_OPACITY = 0.3;
+export const CORE_SHAFT_HEIGHT = 14.0;
+export const CORE_SHAFT_OPACITY = 0.38;
 export const CORE_SHAFT_SPIN = 0.9;
 
 /**
@@ -883,7 +885,14 @@ export const BATTERY_HALO_PULSE_HZ = 2.4;
 export const FOG_NEAR = 125;
 export const FOG_FAR = 400;
 export const HEMI_LIGHT_INTENSITY = 0.85;
-export const SUN_LIGHT_INTENSITY = 1.7;
+/** Warm-cast key against a cool sky fill (handoff 03, section 1). */
+export const SUN_LIGHT_INTENSITY = 1.9;
+export const SUN_COLOR = 0xffe3bd;
+export const TONE_EXPOSURE = 1.06;
+/** Mild bloom: threshold keeps it to emissives and the sky, not the walls. */
+export const BLOOM_STRENGTH = 0.35;
+export const BLOOM_RADIUS = 0.5;
+export const BLOOM_THRESHOLD = 0.82;
 export const SUN_POSITION = [26.0, 40.0, 18.0] as const;
 export const SHADOW_MAP_SIZE = 2048;
 export const SHADOW_CAMERA_EXTENT = 56;

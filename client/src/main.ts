@@ -412,6 +412,9 @@ async function boot(): Promise<void> {
           alive: bot.alive,
           carrying: bot.carrying,
           interacting: bot.interacting,
+          x: +bot.position.x.toFixed(1),
+          z: +bot.position.z.toFixed(1),
+          triggers: soloBots.stuckTriggers[soloBots.runners.indexOf(bot)] ?? 0,
           station: +Math.hypot(
             bot.position.x - EMP_STATION_POSITION[0],
             bot.position.z - EMP_STATION_POSITION[1],
