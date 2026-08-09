@@ -53,6 +53,7 @@ import { DevConsole } from './ui/devConsole';
 import { FpvOverlay } from './ui/fpvOverlay';
 import { Hud } from './ui/hud';
 import { Lobby } from './ui/lobby';
+import { RoundSummaryPanel } from './ui/roundSummary';
 
 const KEY_FORWARD = 'KeyW';
 const KEY_BACK = 'KeyS';
@@ -72,6 +73,7 @@ const KEY_SWAT = 'KeyF';
 const KEY_THROW = 'KeyQ';
 const KEY_GREMLIN = 'KeyG';
 const KEY_DEV = 'Backslash';
+const KEY_METRICS = 'KeyM';
 /** Pickup clicks high, the insert clunk lands low. */
 const CLICK_PITCH_PICKUP = 1.4;
 const CLICK_PITCH_INSERT = 0.7;
@@ -161,6 +163,8 @@ async function boot(): Promise<void> {
   let botDroneId = '';
   /** Relayed runners, so the autopilot chases the whole room and not just us. */
   const autopilotTargets: { alive: boolean; position: THREE.Vector3 }[] = [];
+  /** The server's word on whether the drone is grounded, for prop wash. */
+  let netDroneKnocked = false;
   /** Local mirror of the server's hold timer, purely to fill the prompt bar. */
   let netHoldKind: 'pickup' | 'insert' | null = null;
   let netHoldTimer = 0;
@@ -209,6 +213,8 @@ async function boot(): Promise<void> {
   // Test tooling, and only ever tooling: a production build sets neither of
   // these, so the console is not constructed and its module drops out.
   const devEnabled = import.meta.env.DEV || import.meta.env.VITE_DEV_CONSOLE === '1';
+  const summaryPanel = devEnabled ? new RoundSummaryPanel() : null;
+  if (summaryPanel) net.onRoundEnd = (summary) => summaryPanel.record(summary);
   const devConsole = devEnabled
     ? new DevConsole({
         send: (action, value) => net.sendDev(action, value),
@@ -276,7 +282,9 @@ async function boot(): Promise<void> {
   if (import.meta.env.DEV) {
     (window as unknown as { __test?: object }).__test = {
       resetDrone: () => drone.resetForTest(),
+      placeDrone: (x: number, y: number, z: number) => drone.placeAt(x, y, z),
       dronePos: () => ({ x: drone.position.x, y: drone.position.y, z: drone.position.z }),
+      runnerPos: () => ({ x: runner.position.x, y: runner.position.y, z: runner.position.z }),
       fly: (steps: { n: number; x: number; y: number; lift: number }[]) => {
         testScript.length = 0;
         for (const step of steps) testScript.push({ ...step });
@@ -347,6 +355,18 @@ async function boot(): Promise<void> {
       drone.steerTowards(autopilot.yaw, dt);
     }
     drone.fixedUpdate(dt, flown, washTargets, fuse);
+
+    // Prop wash is applied here, not inside the drone, so that a client with
+    // no drone body of its own still feels it: `drone.position` mirrors the
+    // relayed drone, and shoving our own runner from it is ours to do.
+    // Rotors turn only while the drone is piloted and on its feet.
+    const droneDown = net.connected ? netDroneKnocked : drone.knocked || drone.isDead;
+    if (fuse.piloted && !droneDown) drone.applyPropWash(dt, washTargets);
+
+    // Online the shove flag has no local objective to consume it, so read it
+    // here and let the server decide what it costs us.
+    if (net.connected && runner.consumeShoved()) net.reportShoved();
+    for (let i = hazards.consumeSabotages(); i > 0; i -= 1) net.reportSabotage();
 
     // SACRED CONSTRAINT 3: when a server is connected, the battery lives there
     // and only there, so the local fuse and the blast it causes are strictly
@@ -422,6 +442,10 @@ async function boot(): Promise<void> {
     if (devConsole && input.consumePress(KEY_DEV)) {
       devConsole.toggle();
       if (devConsole.visible) document.exitPointerLock();
+    }
+    if (summaryPanel && input.consumePress(KEY_METRICS)) {
+      summaryPanel.toggle();
+      document.exitPointerLock();
     }
     // Offline you can swap bodies freely, which is how the single-player build
     // lets one person feel both sides. Online the server assigns the role.
@@ -509,6 +533,7 @@ async function boot(): Promise<void> {
       fuse.charge = snapshot.battery;
       fuse.cycle = snapshot.cycle;
       fuse.state = snapshot.fuseState as typeof fuse.state;
+      netDroneKnocked = snapshot.droneKnocked;
       // The server assigns roles, so online the pilot is not ours to choose:
       // whoever it says is the drone flies, and every other client stows its
       // local copy of the drone rather than simulating a second one.
@@ -715,7 +740,7 @@ async function boot(): Promise<void> {
       `draw calls   ${view.renderer.info.render.calls}   tris ${view.renderer.info.render.triangles}`,
       '',
       'E interact · F swat · Q grab/throw · G gremlin · C swap · V FPV · R respawn · O free cam'
-        + (devConsole ? ' · \\ dev console' : ''),
+        + (devConsole ? ' · \\ dev console · M round metrics' : ''),
     ]);
     overlay.update(frameDelta, physics);
 

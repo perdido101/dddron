@@ -70,6 +70,7 @@ export class Hazards {
   private readonly disabledPads = new Map<number, number>();
   private prompt: string | null = null;
   private enabled = true;
+  private sabotageCompleted = 0;
 
   private readonly swatArc: THREE.Mesh;
   private swatFlash = 0;
@@ -351,7 +352,15 @@ export class Hazards {
       this.disabledPads.set(pad, SABOTAGE_DISABLE_TIME);
       this.sabotagePad = -1;
       this.sabotageTimer = 0;
+      this.sabotageCompleted += 1;
     }
+  }
+
+  /** Sabotages finished since the last read. Read once per step for telemetry. */
+  consumeSabotages(): number {
+    const count = this.sabotageCompleted;
+    this.sabotageCompleted = 0;
+    return count;
   }
 
   /** Pads a runner has sabotaged, which the drone may not dock on. */

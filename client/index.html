@@ -360,6 +360,45 @@
         overflow-x: auto;
       }
       .dev-readout { min-height: 14px; color: #7fd4a8; }
+      /* Round metrics (handoff 02, session 3). Dev-only, like the console. */
+      #roundsummary {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        width: 330px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: rgba(18, 22, 28, 0.94);
+        color: #dfe7ef;
+        font-size: 11px;
+        z-index: 46;
+      }
+      .rs-title { font-weight: 700; letter-spacing: 0.14em; margin-bottom: 8px; }
+      .rs-count { font-weight: 400; letter-spacing: 0; opacity: 0.55; }
+      .rs-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+      .rs-table th {
+        text-align: left;
+        font-weight: 400;
+        opacity: 0.55;
+        padding: 2px 0;
+      }
+      .rs-table td { text-align: right; padding: 2px 0; }
+      .rs-share { width: 42px; opacity: 0.5; }
+      .rs-actions { display: flex; gap: 6px; margin-top: 10px; }
+      #roundsummary button {
+        flex: 1;
+        padding: 5px;
+        border: 0;
+        border-radius: 6px;
+        background: #33414f;
+        color: #dfe7ef;
+        font: inherit;
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        cursor: pointer;
+      }
+      #roundsummary button:hover { background: #46586a; }
+      .rs-note { margin-top: 6px; min-height: 13px; color: #7fd4a8; font-size: 10px; }
       #boot {
         position: fixed;
         inset: 0;

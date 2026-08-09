@@ -42,13 +42,27 @@ httpServer.prependListener('request', (req, res) => {
   } else if (req.url === '/health') {
     respond(res, 200, { ok: true, rooms: telemetry.rooms, uptime: Math.round(process.uptime()) });
   } else if (req.url === '/stats') {
-    respond(res, 200, telemetry.stats());
+    respond(res, 200, { ...telemetry.stats(), ...telemetry.pacing() });
+  } else if (req.url === '/rounds.csv') {
+    // One row per round, for a spreadsheet (handoff 02, session 3). Anonymous
+    // by construction: RoundSummary carries no nickname and no session id.
+    res.writeHead(200, {
+      'content-type': 'text/csv; charset=utf-8',
+      'content-disposition': 'attachment; filename="buzzkill-rounds.csv"',
+    });
+    res.end(telemetry.csv());
+    neuter(res);
   }
 });
 
 function respond(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json' });
   res.end(JSON.stringify(body));
+  neuter(res);
+}
+
+/** Make a second write to an already-answered response a no-op, not a crash. */
+function neuter(res: ServerResponse): void {
   res.writeHead = (() => res) as never;
   res.write = (() => true) as never;
   res.end = (() => res) as never;

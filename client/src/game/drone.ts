@@ -366,8 +366,9 @@ export class Drone {
       this.applyWander(dt);
       this.throttle = Math.min(Math.hypot(input.move.x, input.move.y) + Math.abs(input.lift), 1);
       this.body.addForce(this.force, true);
-      // Prop wash only exists while the rotors are turning.
-      this.applyPropWash(dt, runners);
+      // Prop wash only exists while the rotors are turning, which is what
+      // `washing` reports to whoever applies it.
+      void runners;
       return;
     }
 
@@ -487,9 +488,16 @@ export class Drone {
   /**
    * Continuous radial shove on anything under the rotors, falling off with
    * distance. Pushes only — this never damages (brief, phase 2).
+   *
+   * Applied from `position` rather than from the rigid body, and called by the
+   * game loop rather than from fixedUpdate. That matters online: a runner's
+   * client has no drone body of its own, only the relayed position, and
+   * shoving *our own* runner from it is exactly right under sacred constraint
+   * 5 — our body is ours to move. Driving it off the body instead meant prop
+   * wash did nothing at all to anyone but the pilot.
    */
-  private applyPropWash(dt: number, targets: readonly PropWashTarget[]): void {
-    const origin = this.body.translation();
+  applyPropWash(dt: number, targets: readonly PropWashTarget[]): void {
+    const origin = this.position;
     for (const target of targets) {
       const dx = target.position.x - origin.x;
       const dy = target.position.y - origin.y;
@@ -602,7 +610,17 @@ export class Drone {
 
   /** Put the drone back at its launch point on a fresh cycle. */
   relaunch(): void {
-    const [x, y, z] = DRONE_SPAWN;
+    this.placeAt(DRONE_SPAWN[0], DRONE_SPAWN[1], DRONE_SPAWN[2]);
+  }
+
+  /**
+   * Drop the drone at an exact point with no velocity.
+   *
+   * Used by measurement scripts: flying it somewhere open-loop is unreliable
+   * at low frame rates, and a test that cannot reach its own setup reliably
+   * proves nothing about what it was trying to measure.
+   */
+  placeAt(x: number, y: number, z: number): void {
     this.body.setTranslation({ x, y, z }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.position.set(x, y, z);

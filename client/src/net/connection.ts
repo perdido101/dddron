@@ -48,6 +48,36 @@ export interface NetSnapshot {
   devEnabled: boolean;
 }
 
+/**
+ * Core-loop metrics for one finished round (handoff 02, session 3).
+ *
+ * Measured entirely on the server and sent verbatim; the client formats it and
+ * changes nothing. Shape mirrors server/src/roundMetrics.ts.
+ */
+export interface RoundSummary {
+  seconds: number;
+  winner: string;
+  cause: string;
+  players: number;
+  bots: number;
+  secondsToFirstCore: number | null;
+  secondsToLastCore: number | null;
+  coreFreeSeconds: number;
+  coreUntouchedSeconds: number;
+  coreCarriedSeconds: number;
+  dropsByBlast: number;
+  dropsByWash: number;
+  allPadsBlockedSeconds: number;
+  droneStrandedSeconds: number;
+  droneDownSeconds: number;
+  empChargingSeconds: number;
+  empDrainingSeconds: number;
+  detonations: number;
+  eliminations: number;
+  knockdowns: number;
+  sabotages: number;
+}
+
 export interface DetonationMessage {
   x: number;
   y: number;
@@ -73,6 +103,7 @@ export class Connection {
   error: string | null = null;
   onDetonation: ((message: DetonationMessage) => void) | null = null;
   onEmp: (() => void) | null = null;
+  onRoundEnd: ((summary: RoundSummary) => void) | null = null;
 
   private sendTimer = 0;
   private sequence = 0;
@@ -116,8 +147,9 @@ export class Connection {
 
       room.onMessage('detonation', (message: DetonationMessage) => this.onDetonation?.(message));
       room.onMessage('emp', () => this.onEmp?.());
-      // Registered so colyseus.js does not warn; phase 9 renders this properly.
-      room.onMessage('roundEnd', () => undefined);
+      room.onMessage('roundEnd', (message: { summary?: RoundSummary }) => {
+        if (message?.summary) this.onRoundEnd?.(message.summary);
+      });
       room.onMessage('pong', (sent: number) => {
         // Keep a short rolling window: one bad sample should not dominate the
         // reading a player sees mid-round.
@@ -192,6 +224,19 @@ export class Connection {
    */
   reportKnockdown(): void {
     this.room?.send('knockdown');
+  }
+
+  /**
+   * The prop wash blew the core out of our hands. We felt the shove (our body
+   * is ours), the server owns the core, so it performs the drop.
+   */
+  reportShoved(): void {
+    this.room?.send('shoved');
+  }
+
+  /** A pad was sabotaged. Counted for telemetry; grants nothing. */
+  reportSabotage(): void {
+    this.room?.send('sabotage');
   }
 
   /**

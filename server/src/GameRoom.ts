@@ -19,6 +19,7 @@ import {
   MAX_PLAYERS,
   MIN_PLAYERS,
   PRACTICE_MIN_PLAYERS,
+  PROP_WASH_RADIUS,
   RECONNECT_WINDOW,
   ROUNDS_PER_MATCH_MIN,
   SCORE_DRONE_ELIM,
@@ -36,6 +37,7 @@ import {
 } from '@shared/constants';
 import { Fuse, type Vec3 } from '@shared/fuse';
 
+import { RoundMetrics } from './roundMetrics';
 import { CoreEntity, GameState, PlayerState } from './schema';
 import { telemetry } from './telemetry';
 
@@ -65,6 +67,8 @@ export class GameRoom extends Room<GameState> {
   private readonly holds = new Map<string, { kind: 'pickup' | 'insert'; core: number; timer: number }>();
   private readonly interacting = new Set<string>();
   private roundClock = 0;
+  /** Core-loop pacing numbers for the round in progress (handoff 02, session 3). */
+  private metrics = new RoundMetrics();
   private nextBotId = 1;
   private knockdownTimer = 0;
   private intermission = 0;
@@ -152,6 +156,37 @@ export class GameRoom extends Room<GameState> {
       else this.interacting.delete(bot.sessionId);
     });
 
+    /**
+     * "The prop wash blew the core out of my hands."
+     *
+     * Prop wash is applied by each client to its own body, because movement is
+     * client-authoritative — but the core it knocks loose is the server's, so
+     * the client reports the shove and the server performs the drop. Range is
+     * checked here: a client cannot drop a core it is nowhere near the drone
+     * to have lost.
+     */
+    this.onMessage('shoved', (client) => {
+      if (this.state.phase !== 'playing') return;
+      const player = this.state.players.get(client.sessionId);
+      const drone = this.dronePlayer();
+      if (!player?.carrying || !drone) return;
+      const reach = Math.hypot(player.x - drone.x, player.y - drone.y, player.z - drone.z);
+      if (reach > PROP_WASH_RADIUS * WASH_RANGE_TOLERANCE) return;
+      this.dropCoresOf(client.sessionId);
+      player.carrying = false;
+      player.coresDropped += 1;
+      this.metrics.coreDropped('wash');
+    });
+
+    /**
+     * A runner sabotaged a charge pad. Sabotage is a client-side hazard and
+     * the server does not model it, so this is a count and nothing more — it
+     * grants no advantage and cannot be used to change any state.
+     */
+    this.onMessage('sabotage', () => {
+      if (this.state.phase === 'playing') this.metrics.sabotage();
+    });
+
     this.onMessage('ready', (client, ready: boolean) => {
       const player = this.state.players.get(client.sessionId);
       if (player) player.ready = ready === true;
@@ -195,6 +230,7 @@ export class GameRoom extends Room<GameState> {
       if (reach > SWAT_RANGE * SWAT_RANGE_TOLERANCE) return;
       this.knockdownTimer = KNOCKDOWN_RECOVERY;
       this.state.droneKnocked = true;
+      this.metrics.knockdown();
       this.broadcast('knockdown', { by: client.sessionId });
     });
 
@@ -438,7 +474,24 @@ export class GameRoom extends Room<GameState> {
 
     this.stepFuse(dt);
     this.stepObjective(dt);
+    this.stepMetrics(dt);
     this.checkWinConditions();
+  }
+
+  /** Accounting only: this reads state, and changes none of it. */
+  private stepMetrics(dt: number): void {
+    const coreStates: string[] = [];
+    this.state.cores.forEach((core) => coreStates.push(core.state));
+    const charged = this.state.coresInserted >= CORES_REQUIRED;
+    this.metrics.step(
+      dt,
+      coreStates,
+      this.availablePads().length,
+      this.fuse.stranded,
+      this.fuse.state,
+      charged && this.state.empPresent >= this.state.empNeeded,
+      charged && this.state.empPresent < this.state.empNeeded && this.state.empCharge > 0,
+    );
   }
 
   /** Battery drain, detonation and the dock/recharge cycle. */
@@ -471,11 +524,13 @@ export class GameRoom extends Room<GameState> {
       );
       if (d <= DETONATION_RADIUS) {
         player.alive = false;
+        if (player.carrying) this.metrics.coreDropped('blast');
         player.carrying = false;
         this.dropCoresOf(player.sessionId);
         victims.push(player.sessionId);
       }
     });
+    this.metrics.detonation(victims.length);
 
     this.broadcast('detonation', {
       x: detonation.position.x,
@@ -517,6 +572,7 @@ export class GameRoom extends Room<GameState> {
         core.pad = -1;
         player.carrying = false;
         this.state.coresInserted = this.insertedCount();
+        this.metrics.coreInserted(this.state.coresInserted);
       }
       this.holds.delete(sessionId);
     }
@@ -631,6 +687,7 @@ export class GameRoom extends Room<GameState> {
 
   private resetRound(): void {
     this.roundClock = 0;
+    this.metrics = new RoundMetrics();
     this.knockdownTimer = 0;
     this.state.droneKnocked = false;
     this.holds.clear();
@@ -676,14 +733,20 @@ export class GameRoom extends Room<GameState> {
     this.intermission = ROUND_END_AUTO_ADVANCE;
     this.state.droneKnocked = false;
 
+    let bots = 0;
+    this.state.players.forEach((player) => {
+      if (player.bot) bots += 1;
+    });
+    const summary = this.metrics.summarise(winner, cause, this.state.players.size, bots);
     telemetry.recordRound({
       winner,
       cause,
       seconds: this.roundClock,
       players: this.state.players.size,
     });
+    telemetry.recordSummary(summary);
 
-    this.broadcast('roundEnd', { winner, cause, matchOver, round: this.state.round });
+    this.broadcast('roundEnd', { winner, cause, matchOver, round: this.state.round, summary });
   }
 
   /** Scoring, straight from section 4 of the brief. */
@@ -813,6 +876,12 @@ const NICKNAME_MAX = 16;
 const BOT_NAMES = ['Pip', 'Bod', 'Nix', 'Tam', 'Gus', 'Wex', 'Ozz'];
 /** Slack on the server-side swat range check, to forgive 20 Hz position lag. */
 const SWAT_RANGE_TOLERANCE = 1.6;
+/**
+ * Same idea for the prop-wash drop: the shove is felt on the shoved player's
+ * own client, so by the time the report lands both bodies have moved on. The
+ * check exists to reject nonsense, not to re-adjudicate the physics.
+ */
+const WASH_RANGE_TOLERANCE = 2.0;
 /**
  * Dev console, off unless the operator sets BUZZKILL_DEV=1. The deployed
  * playtest server runs without it, so a curious player poking at the socket
