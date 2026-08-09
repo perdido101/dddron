@@ -468,6 +468,19 @@ export const CORE_SPIN_RATE = 1.1;
 export const COLOR_CORE = 0xffd166;
 export const COLOR_CORE_CARRIED = 0xfff3b0;
 
+/**
+ * unspecified. Juice pass (phase 10). Shake is in metres of camera offset,
+ * punch is in degrees of FOV, hit stop is in seconds.
+ */
+export const SHAKE_DETONATION = 0.55;
+export const SHAKE_KNOCKDOWN = 0.18;
+export const SHAKE_DECAY = 1.6;
+export const SHAKE_FREQUENCY = 42.0;
+export const SHAKE_MAX_OFFSET = 0.6;
+export const HITSTOP_SWAT = 0.08;
+export const PUNCH_EMP = 14.0;
+export const PUNCH_RECOVER = 26.0;
+
 /** unspecified. White screen pulse when the EMP fires. */
 export const EMP_FLASH_TIME = 1.1;
 export const EMP_FLASH_COLOR = 0xffffff;
@@ -575,6 +588,19 @@ export const MAX_PLAYERS = 8;
 /** unspecified. Round-end screen auto-advance (phase 9 task list says 10 s). */
 export const ROUND_END_AUTO_ADVANCE = 10;
 export const ROOM_CODE_LENGTH = 4;
+/** Letters used in room codes. No vowels: avoids accidental words. */
+export const ROOM_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXZ';
+/** unspecified. Hard cap on live rooms (phase 11 wants this; it is free now). */
+export const MAX_CONCURRENT_ROOMS = 50;
+
+/** A fresh room code. Colyseus filters rooms by this, so it is the join key. */
+export function makeRoomCode(): string {
+  let code = '';
+  for (let i = 0; i < ROOM_CODE_LENGTH; i += 1) {
+    code += ROOM_CODE_ALPHABET[Math.floor(Math.random() * ROOM_CODE_ALPHABET.length)];
+  }
+  return code;
+}
 
 export const SCORE_RUNNER_SURVIVE = 1;
 /** To every runner alive at fire time. */

@@ -92,6 +92,11 @@ export class Drone {
   private previousYaw = 0;
   private yawRateValue = 0;
   private dead = false;
+  /** Set by streamer nets (phase 7): 1 is normal, 0.4 is tangled. */
+  speedMultiplier = 1;
+  /** Grounded by a swat, a thrown prop or a fan. Never lethal. */
+  private knockdownTimer = 0;
+  private readonly external = new THREE.Vector3();
   private rotorPhase = 0;
   private throttle = 0;
   private wanderClock = 0;
@@ -186,6 +191,28 @@ export class Drone {
     this.yaw += THREE.MathUtils.clamp(delta, -AI_TURN_RATE * dt, AI_TURN_RATE * dt);
   }
 
+  /**
+   * Take an outside force for one step — ceiling fans, mostly. Accumulated and
+   * applied with the drone's own forces so it is one solve, not two.
+   */
+  applyExternalForce(x: number, y: number, z: number): void {
+    this.external.x += x;
+    this.external.y += y;
+    this.external.z += z;
+  }
+
+  /**
+   * Knocked out of the air. SACRED CONSTRAINT 4: this never kills the drone,
+   * it only costs it time and forces a return to a pad.
+   */
+  knockdown(seconds: number): void {
+    this.knockdownTimer = Math.max(this.knockdownTimer, seconds);
+  }
+
+  get knocked(): boolean {
+    return this.knockdownTimer > 0;
+  }
+
   /** The EMP fired. The drone is permanently dead — this is the runners' win. */
   kill(): void {
     this.dead = true;
@@ -225,7 +252,6 @@ export class Drone {
     runners: readonly PropWashTarget[],
     fuse: Fuse,
   ): void {
-    void dt;
     // Rapier's addForce is PERSISTENT: it keeps applying every step until the
     // accumulator is cleared. Without this reset the hover force compounds each
     // tick and the drone leaves the arena at absurd speed.
@@ -235,9 +261,23 @@ export class Drone {
     this.velocity.set(linvel.x, linvel.y, linvel.z);
     this.force.set(0, 0, 0);
 
+    // External forces (fans) always apply, even mid-knockdown — being flung
+    // while already tumbling is the funniest thing that can happen to it.
+    this.force.add(this.external);
+    this.external.set(0, 0, 0);
+
     if (this.dead) {
       // Dead weight. Gravity is the only thing acting on it now.
       this.throttle = 0;
+      this.body.addForce(this.force, true);
+      return;
+    }
+
+    if (this.knockdownTimer > 0) {
+      this.knockdownTimer -= dt;
+      // No lift, no thrust, no wash: it is on the floor until it recovers.
+      this.throttle = 0;
+      this.body.addForce(this.force, true);
       return;
     }
 
@@ -321,7 +361,8 @@ export class Drone {
     const scale = magnitude > 1 ? 1 / magnitude : 1;
 
     const speed = Math.hypot(this.velocity.x, this.velocity.z);
-    const thrust = speed >= DRONE_THRUST_CUTOFF ? 0 : DRONE_ACCELERATION * DRONE_MASS;
+    const cutoff = DRONE_THRUST_CUTOFF * this.speedMultiplier;
+    const thrust = speed >= cutoff ? 0 : DRONE_ACCELERATION * DRONE_MASS * this.speedMultiplier;
 
     this.force.x += dirX * scale * thrust;
     this.force.z += dirZ * scale * thrust;

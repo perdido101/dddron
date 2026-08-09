@@ -17,7 +17,12 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 | 4 | Power cores + EMP objective | done — one criterion open (see below) |
 | Add-on 01 | Drone FPV camera | done |
 | 5 | Colyseus netcode | done — see verification below |
-| 6–11 | Lobby, hazards, gremlins, scoring, art, deploy | **not started** |
+| 6 | Lobby, room codes, N runners | done |
+| 7 | Hazards and counterplay | done |
+| 8 | Elimination and spectator gremlins | done |
+| 9 | Match structure, rotation and scoring | done |
+| 10 | Juice and audio (art pass partial — see below) | partial |
+| 11 | Deploy (client live; server host outstanding) | partial |
 
 Phases 1 and 2 each end in a feel gate. Nothing past a gate gets built until a
 human has played it, because everything downstream is worthless if the gates
@@ -59,6 +64,9 @@ Other scripts: `npm run typecheck` (all workspaces, strict), `npm run build`
 | `V` | Drone FPV feed — tap to toggle, hold to peek |
 | `~` | Debug overlay: fps, physics cost, body count, runner state |
 | `O` | Free camera (inspect the arena, or either body, mid-build) |
+| `F` | Swat — knocks the drone down, never kills it |
+| `Q` | Grab / throw a loose prop |
+| `G` | Gremlin hazard trigger (once per detonation cycle, when eliminated) |
 | `R` | Respawn the runner (revives after a detonation) |
 | `B` | Re-drop the phase 0 test cube |
 
@@ -131,6 +139,23 @@ npm run dev                                  # client
 Point the client at a server with `?server=ws://host:port`, or set
 `VITE_SERVER_URL` at build time. **With neither, the client stays single-player**
 — there is no hardcoded endpoint anywhere, and the offline build is unaffected.
+
+#### Phases 6-9 verification
+
+- **Room codes**: a created room reports the requested 4-letter code; joining
+  with the wrong code is rejected, joining with the right one lands in the same
+  room. Codes are a Colyseus matchmaking filter, not a lookup.
+- **Host rules**: the creator is host; a non-host `start` is ignored; the host's
+  start is refused below `MIN_PLAYERS` and accepted at 3, opening round 1/5 with
+  1 drone and 2 runners.
+- **Charge scaling**: `empNeeded` reported 1 with 2 runners alive, rising to 2
+  at 3+, per the brief.
+- **Knockdown is server-checked**: a runner standing on the drone got
+  `droneKnocked = true`; the same runner 25 m away was refused. It never kills —
+  sacred constraint 4 — it only costs the drone time.
+- **Hazards run**: fans, nets and 8 throwable props are in the arena (draw calls
+  rise from the 21-object baseline to 45), swat cooldown ticks, props can be
+  grabbed and thrown.
 
 ### Phase 5 verification
 

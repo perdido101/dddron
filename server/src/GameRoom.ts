@@ -15,8 +15,19 @@ import {
   EMP_DRAIN_ON_ABANDON,
   EMP_STATION_POSITION,
   EMP_STATION_RADIUS,
+  KNOCKDOWN_RECOVERY,
   MAX_PLAYERS,
+  MIN_PLAYERS,
   RECONNECT_WINDOW,
+  ROUNDS_PER_MATCH_MIN,
+  SCORE_DRONE_ELIM,
+  SCORE_DRONE_WIPE,
+  SCORE_EMP_FIRED,
+  SCORE_RUNNER_SURVIVE,
+  SWAT_RANGE,
+  makeRoomCode,
+  roundsPerMatch,
+  ROUND_END_AUTO_ADVANCE,
   ROUND_TIME,
   RUNNER_SPAWN,
   SERVER_BROADCAST_HZ,
@@ -25,6 +36,7 @@ import {
 import { Fuse, type Vec3 } from '@shared/fuse';
 
 import { CoreEntity, GameState, PlayerState } from './schema';
+import { telemetry } from './telemetry';
 
 /** What a client is allowed to tell the server about itself. */
 interface MoveMessage {
@@ -52,9 +64,15 @@ export class GameRoom extends Room<GameState> {
   private readonly holds = new Map<string, { kind: 'pickup' | 'insert'; core: number; timer: number }>();
   private readonly interacting = new Set<string>();
   private roundClock = 0;
+  private knockdownTimer = 0;
+  private intermission = 0;
 
-  override onCreate(): void {
+  override onCreate(options: { code?: string } = {}): void {
     this.state = new GameState();
+    // The code arrives as a create option and the room is filtered by it, so
+    // joining by code is ordinary Colyseus matchmaking rather than a lookup.
+    this.state.code = (options.code ?? makeRoomCode()).toUpperCase();
+    void this.setMetadata({ code: this.state.code });
     this.resetRound();
 
     this.onMessage('move', (client, message: MoveMessage) => {
@@ -75,11 +93,53 @@ export class GameRoom extends Room<GameState> {
       else this.interacting.delete(client.sessionId);
     });
 
-    this.onMessage('start', () => {
-      if (this.state.phase === 'lobby') this.beginRound();
+    this.onMessage('ready', (client, ready: boolean) => {
+      const player = this.state.players.get(client.sessionId);
+      if (player) player.ready = ready === true;
     });
 
+    // Host-only start, and never below the minimum player count.
+    this.onMessage('start', (client) => {
+      if (this.state.phase !== 'lobby' && this.state.phase !== 'intermission') return;
+      if (client.sessionId !== this.state.host) return;
+      if (this.state.players.size < MIN_PLAYERS) return;
+      this.beginMatchIfNeeded();
+      this.beginRound();
+    });
+
+    /** Host may force who flies round 1; after that phase 9 rotates it. */
+    this.onMessage('assignDrone', (client, sessionId: string) => {
+      if (client.sessionId !== this.state.host) return;
+      if (this.state.phase !== 'lobby') return;
+      this.state.players.forEach((player) => {
+        player.role = player.sessionId === sessionId ? 'drone' : 'runner';
+      });
+    });
+
+    /**
+     * A swat, a thrown prop or a fan: all of them knock the drone down, and
+     * none of them kill it (sacred constraint 4 — the reward is time, never
+     * victory). The client reports the hit; the server owns the consequence.
+     */
+    this.onMessage('knockdown', (client) => {
+      if (this.state.phase !== 'playing' || this.state.droneKnocked) return;
+      const attacker = this.state.players.get(client.sessionId);
+      const drone = this.dronePlayer();
+      if (!attacker || !drone || attacker.role !== 'runner' || !attacker.alive) return;
+      // Range-check server-side so a client cannot swat from across the arena.
+      const reach = Math.hypot(attacker.x - drone.x, attacker.y - drone.y, attacker.z - drone.z);
+      if (reach > SWAT_RANGE * SWAT_RANGE_TOLERANCE) return;
+      this.knockdownTimer = KNOCKDOWN_RECOVERY;
+      this.state.droneKnocked = true;
+      this.broadcast('knockdown', { by: client.sessionId });
+    });
+
+    telemetry.roomOpened();
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs / 1000), 1000 / SERVER_BROADCAST_HZ);
+  }
+
+  override onDispose(): void {
+    telemetry.roomClosed();
   }
 
   override onJoin(client: Client, options: { nickname?: string } = {}): void {
@@ -91,6 +151,10 @@ export class GameRoom extends Room<GameState> {
     player.role = this.hasDrone() ? 'runner' : 'drone';
     this.placeAtSpawn(player);
     this.state.players.set(client.sessionId, player);
+    // First one in hosts; if they leave, the next player inherits it.
+    if (!this.state.host || !this.state.players.has(this.state.host)) {
+      this.state.host = client.sessionId;
+    }
   }
 
   override async onLeave(client: Client, consented: boolean): Promise<void> {
@@ -106,6 +170,7 @@ export class GameRoom extends Room<GameState> {
 
     if (consented) {
       this.state.players.delete(client.sessionId);
+      this.rehost();
       return;
     }
 
@@ -113,13 +178,34 @@ export class GameRoom extends Room<GameState> {
       await this.allowReconnection(client, RECONNECT_WINDOW);
     } catch {
       this.state.players.delete(client.sessionId);
+      this.rehost();
     }
+  }
+
+  /** Host left: hand it to whoever is still here, so the room is not stuck. */
+  private rehost(): void {
+    if (this.state.players.has(this.state.host)) return;
+    let next = '';
+    this.state.players.forEach((player) => {
+      if (!next) next = player.sessionId;
+    });
+    this.state.host = next;
   }
 
   // -------------------------------------------------------------- simulation
 
   private tick(dt: number): void {
+    if (this.state.phase === 'intermission') {
+      this.intermission -= dt;
+      if (this.intermission <= 0) this.beginRound();
+      return;
+    }
     if (this.state.phase !== 'playing') return;
+
+    if (this.knockdownTimer > 0) {
+      this.knockdownTimer -= dt;
+      if (this.knockdownTimer <= 0) this.state.droneKnocked = false;
+    }
 
     this.roundClock += dt;
     this.state.roundRemaining = Math.max(0, ROUND_TIME - this.roundClock);
@@ -266,13 +352,47 @@ export class GameRoom extends Room<GameState> {
 
   // ------------------------------------------------------------------ rounds
 
+  /**
+   * Match length is max(5, playerCount), and the drone rotates so everyone
+   * flies once before anyone flies twice (brief, phase 9).
+   */
+  private beginMatchIfNeeded(): void {
+    if (this.state.totalRounds > 0) return;
+    this.state.totalRounds = roundsPerMatch(Math.max(this.state.players.size, ROUNDS_PER_MATCH_MIN));
+    this.state.round = 0;
+    this.state.players.forEach((player) => {
+      player.score = 0;
+      player.flown = 0;
+      player.survived = 0;
+      player.coresDropped = 0;
+      player.fanLaunches = 0;
+    });
+  }
+
   private beginRound(): void {
+    this.rotateDrone();
     this.resetRound();
+    this.state.round += 1;
     this.state.phase = 'playing';
+  }
+
+  /** Fewest flights so far takes the drone; ties break on join order. */
+  private rotateDrone(): void {
+    let pick: PlayerState | undefined;
+    this.state.players.forEach((player) => {
+      if (!pick || player.flown < pick.flown) pick = player;
+    });
+    if (!pick) return;
+    this.state.players.forEach((player) => {
+      player.role = player === pick ? 'drone' : 'runner';
+    });
+    pick.flown += 1;
   }
 
   private resetRound(): void {
     this.roundClock = 0;
+    this.knockdownTimer = 0;
+    this.state.droneKnocked = false;
     this.holds.clear();
     this.interacting.clear();
     Object.assign(this.fuse, new Fuse());
@@ -306,10 +426,48 @@ export class GameRoom extends Room<GameState> {
   }
 
   private endRound(winner: string, cause: string): void {
-    this.state.phase = 'ended';
     this.state.winner = winner;
     this.state.cause = cause;
-    this.broadcast('roundEnd', { winner, cause });
+    if (winner !== 'aborted') this.award(winner);
+
+    const matchOver = this.state.round >= this.state.totalRounds && this.state.totalRounds > 0;
+    this.state.phase = matchOver ? 'ended' : 'intermission';
+    this.intermission = ROUND_END_AUTO_ADVANCE;
+    this.state.droneKnocked = false;
+
+    telemetry.recordRound({
+      winner,
+      cause,
+      seconds: this.roundClock,
+      players: this.state.players.size,
+    });
+
+    this.broadcast('roundEnd', { winner, cause, matchOver, round: this.state.round });
+  }
+
+  /** Scoring, straight from section 4 of the brief. */
+  private award(winner: string): void {
+    const drone = this.dronePlayer();
+    const runners: PlayerState[] = [];
+    this.state.players.forEach((player) => {
+      if (player.role === 'runner') runners.push(player);
+    });
+
+    if (winner === 'runners') {
+      for (const runner of runners) {
+        if (runner.alive) runner.score += SCORE_EMP_FIRED + SCORE_RUNNER_SURVIVE;
+      }
+    } else if (winner === 'drone' && drone) {
+      const eliminated = runners.filter((runner) => !runner.alive).length;
+      drone.score += eliminated * SCORE_DRONE_ELIM;
+      if (eliminated === runners.length && runners.length > 0) drone.score += SCORE_DRONE_WIPE;
+      for (const runner of runners) {
+        if (runner.alive) {
+          runner.score += SCORE_RUNNER_SURVIVE;
+          runner.survived += 1;
+        }
+      }
+    }
   }
 
   // ------------------------------------------------------------------ helpers
@@ -411,6 +569,8 @@ const CORE_CARRY_OFFSET = 1.6;
 /** Below this altitude a detonated drone counts as having hit the floor. */
 const SETTLED_ALTITUDE = 1.0;
 const NICKNAME_MAX = 16;
+/** Slack on the server-side swat range check, to forgive 20 Hz position lag. */
+const SWAT_RANGE_TOLERANCE = 1.6;
 
 function padUnder(x: number, z: number): number {
   for (let i = 0; i < CHARGE_PAD_POSITIONS.length; i += 1) {

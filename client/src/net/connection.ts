@@ -1,6 +1,6 @@
 import { Client, type Room } from 'colyseus.js';
 
-import { CLIENT_SEND_HZ } from '@shared/constants';
+import { CLIENT_SEND_HZ, makeRoomCode } from '@shared/constants';
 
 /** A snapshot of one networked player, as the renderer needs it. */
 export interface RemotePlayer {
@@ -13,6 +13,11 @@ export interface RemotePlayer {
   yaw: number;
   alive: boolean;
   carrying: boolean;
+  ready: boolean;
+  score: number;
+  survived: number;
+  coresDropped: number;
+  fanLaunches: number;
 }
 
 /** Everything the client renders but does not own. */
@@ -30,6 +35,11 @@ export interface NetSnapshot {
   phase: string;
   winner: string;
   cause: string;
+  code: string;
+  host: string;
+  round: number;
+  totalRounds: number;
+  droneKnocked: boolean;
 }
 
 export interface DetonationMessage {
@@ -70,18 +80,31 @@ export class Connection {
     return this.room?.sessionId ?? '';
   }
 
-  /** @param endpoint ws:// or wss:// origin. Empty string means stay offline. */
+  /**
+   * Create a room with a fresh code. @param endpoint empty means stay offline.
+   */
   async connect(endpoint: string, nickname: string): Promise<void> {
+    const code = makeRoomCode();
+    return this.open(endpoint, async (client) => client.create('buzzkill', { nickname, code }));
+  }
+
+  /**
+   * Join by 4-letter code. The server filters rooms by `code`, so `join` (which
+   * never creates) lands us in that room or fails cleanly.
+   */
+  async joinByCode(endpoint: string, nickname: string, code: string): Promise<void> {
+    return this.open(endpoint, async (client) =>
+      client.join('buzzkill', { nickname, code: code.toUpperCase() }),
+    );
+  }
+
+  private async open(endpoint: string, joiner: (client: Client) => Promise<Room>): Promise<void> {
     if (!endpoint) return;
     try {
       const client = new Client(endpoint);
-      const room = await client.joinOrCreate('buzzkill', { nickname });
+      const room = await joiner(client);
       this.room = room;
       this.error = null;
-
-      // No lobby until phase 6, so a joining client asks for the round to run.
-      // The server ignores this unless it is actually sitting in 'lobby'.
-      room.send('start');
 
       room.onMessage('detonation', (message: DetonationMessage) => this.onDetonation?.(message));
       room.onMessage('emp', () => this.onEmp?.());
@@ -103,9 +126,21 @@ export class Connection {
     }
   }
 
-  /** Ask the server to start the round (phase 6 moves this into the lobby). */
+  /** Ask the server to start the round. Ignored unless we are the host. */
   start(): void {
     this.room?.send('start');
+  }
+
+  setReady(ready: boolean): void {
+    this.room?.send('ready', ready);
+  }
+
+  /**
+   * Tell the server a hazard connected. The server range-checks it and owns
+   * the consequence — the client never decides that the drone is down.
+   */
+  reportKnockdown(): void {
+    this.room?.send('knockdown');
   }
 
   /**
@@ -154,6 +189,11 @@ export class Connection {
         yaw: player.yaw,
         alive: player.alive,
         carrying: player.carrying,
+        ready: player.ready,
+        score: player.score,
+        survived: player.survived,
+        coresDropped: player.coresDropped,
+        fanLaunches: player.fanLaunches,
       });
     });
 
@@ -176,6 +216,11 @@ export class Connection {
       phase: state.phase as string,
       winner: state.winner as string,
       cause: state.cause as string,
+      code: state.code as string,
+      host: state.host as string,
+      round: state.round as number,
+      totalRounds: state.totalRounds as number,
+      droneKnocked: state.droneKnocked as boolean,
     };
   }
 

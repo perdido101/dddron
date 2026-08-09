@@ -4,19 +4,23 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
   ARENA_SIZE,
   CAMERA_DISTANCE,
+  CAMERA_FOV,
   CAMERA_TARGET_HEIGHT,
+  DETONATION_RADIUS,
   DRONE_CAMERA_DISTANCE,
   DRONE_CAMERA_HEIGHT,
   DRONE_CAMERA_LAG,
   EMP_FLASH_TIME,
   FIXED_TIMESTEP,
+  KNOCKDOWN_RECOVERY,
   FOOT_OFFSET,
   FPV_STORAGE_KEY,
   FPV_TOGGLE_HOLD_MS,
 } from '@shared/constants';
 
-import { PropWhine } from './engine/audio';
+import { PropWhine, Sfx } from './engine/audio';
 import { DebugOverlay } from './engine/debugOverlay';
+import { Juice } from './engine/juice';
 import { Input } from './engine/input';
 import { Physics } from './engine/physics';
 import { View } from './engine/view';
@@ -26,6 +30,8 @@ import { Confetti } from './game/confetti';
 import { Drone } from './game/drone';
 import { FollowCamera } from './game/followCamera';
 import { FpvFeed } from './game/fpv';
+import { Gremlin } from './game/gremlin';
+import { Hazards } from './game/hazards';
 import { Fuse, applyBlast } from '@shared/fuse';
 import { Objective } from './game/objective';
 import { Runner } from './game/runner';
@@ -34,6 +40,7 @@ import { Connection, resolveEndpoint } from './net/connection';
 import { RemoteAvatars } from './net/remoteAvatars';
 import { FpvOverlay } from './ui/fpvOverlay';
 import { Hud } from './ui/hud';
+import { Lobby } from './ui/lobby';
 
 const KEY_FORWARD = 'KeyW';
 const KEY_BACK = 'KeyS';
@@ -49,6 +56,12 @@ const KEY_RESPAWN = 'KeyR';
 const KEY_DROP_CUBE = 'KeyB';
 const KEY_INTERACT = 'KeyE';
 const KEY_FPV = 'KeyV';
+const KEY_SWAT = 'KeyF';
+const KEY_THROW = 'KeyQ';
+const KEY_GREMLIN = 'KeyG';
+/** Pickup clicks high, the insert clunk lands low. */
+const CLICK_PITCH_PICKUP = 1.4;
+const CLICK_PITCH_INSERT = 0.7;
 
 /** Which body the player is currently piloting. */
 type Pilot = 'runner' | 'drone';
@@ -72,8 +85,12 @@ async function boot(): Promise<void> {
   const confetti = new Confetti(view.scene);
   const hud = new Hud();
   const whine = new PropWhine();
+  const sfx = new Sfx();
   const objective = new Objective(view.scene);
   const autopilot = new Autopilot();
+  const hazards = new Hazards(physics, view.scene);
+  const gremlin = new Gremlin(view.scene);
+  const juice = new Juice();
   const fpv = new FpvFeed(view.renderer);
   const fpvOverlay = new FpvOverlay();
   fpv.attachTo(drone.chassisObject);
@@ -82,7 +99,29 @@ async function boot(): Promise<void> {
   const net = new Connection();
   const avatars = new RemoteAvatars(view.scene);
   net.onDetonation = (message) => confetti.burst(message);
-  void net.connect(resolveEndpoint(), 'player');
+
+  const endpoint = resolveEndpoint();
+  let soloMode = endpoint === '';
+  const lobby = new Lobby({
+    onCreate: (nickname) => {
+      void net.connect(endpoint, nickname).then(() => {
+        if (net.error) lobby.setStatus(net.error);
+        else lobby.enterRoom();
+      });
+    },
+    onJoin: (nickname, code) => {
+      void net.joinByCode(endpoint, nickname, code).then(() => {
+        if (net.error) lobby.setStatus(net.error);
+        else lobby.enterRoom();
+      });
+    },
+    onReady: (ready) => net.setReady(ready),
+    onStart: () => net.start(),
+    onSolo: () => { soloMode = true; },
+  });
+  // With no server configured there is nothing to join, so go straight in.
+  if (soloMode) lobby.hide();
+  else lobby.setStatus(`server: ${endpoint}`);
 
   const sizeFpv = (): void => fpv.resize(window.innerWidth, window.innerHeight);
   sizeFpv();
@@ -90,7 +129,10 @@ async function boot(): Promise<void> {
 
   // Browsers will not start audio without a gesture, and the prop whine is a
   // mechanic rather than polish, so wire it to the first interaction there is.
-  const startAudio = (): void => whine.start();
+  const startAudio = (): void => {
+    whine.start();
+    sfx.attach(whine.audioContext);
+  };
   window.addEventListener('pointerdown', startAudio);
   window.addEventListener('keydown', startAudio);
 
@@ -116,6 +158,9 @@ async function boot(): Promise<void> {
   let pilot: Pilot = 'runner';
   let orbitMode = false;
   let interactHeld = false;
+  let gremlinLift = 0;
+  let lastInserted = 0;
+  let lastCarrying = false;
   let roundClock = 0;
   let empFlash = 0;
   const runners = [runner];
@@ -150,10 +195,30 @@ async function boot(): Promise<void> {
     if (detonation) {
       applyBlast(detonation.position, runners);
       confetti.burst(detonation.position);
+      sfx.detonation();
+      juice.detonation(runner.position.distanceTo(detonation.position as THREE.Vector3), DETONATION_RADIUS);
+      // Being blown up hands you a gremlin, and every detonation refreshes the
+      // one hazard trigger a gremlin gets.
+      gremlin.onDetonation();
+      if (!runner.alive && !gremlin.active) gremlin.enter(runner.position);
     }
+
+    hazards.fixedUpdate(dt, runner, drone, interactHeld);
+    hazards.checkPropHits(drone);
+    if (hazards.knockdownRequested) {
+      hazards.knockdownRequested = false;
+      juice.knockdown();
+      // Sacred constraint 4: a knockdown costs the drone time, never its life.
+      drone.knockdown(KNOCKDOWN_RECOVERY);
+      net.reportKnockdown();
+    }
+
+    // Eliminated: fly the gremlin instead of the runner.
+    if (gremlin.active) gremlin.fixedUpdate(dt, moveInput, gremlinLift, camera.heading);
 
     objective.step(dt, runners, interactHeld);
     if (objective.fired && empFlash === 0) {
+      juice.empFired();
       // Runners win the moment the EMP fires. The drone drops dead.
       empFlash = EMP_FLASH_TIME;
       drone.kill();
@@ -162,6 +227,7 @@ async function boot(): Promise<void> {
   physics.onFixedPostStep(() => {
     drone.sample();
     testCube.sample();
+    hazards.sample();
   });
 
   let lastFrameTime = performance.now();
@@ -176,8 +242,10 @@ async function boot(): Promise<void> {
   });
 
   function frame(now: number): void {
-    const frameDelta = (now - lastFrameTime) / 1000;
+    const realDelta = (now - lastFrameTime) / 1000;
     lastFrameTime = now;
+    // Hit stop scales the whole world's clock for a few milliseconds.
+    const frameDelta = juice.consumeHitstop(realDelta);
 
     if (input.consumePress(KEY_DEBUG)) overlay.toggle();
     if (input.consumePress(KEY_SWAP)) {
@@ -208,7 +276,18 @@ async function boot(): Promise<void> {
       fpvPressedAt = 0;
       window.localStorage.setItem(FPV_STORAGE_KEY, fpvMode ? '1' : '0');
     }
-    if (input.consumePress(KEY_RESPAWN)) runner.respawn();
+    if (input.consumePress(KEY_RESPAWN)) {
+      runner.respawn();
+      gremlin.exit();
+    }
+    // Gremlins climb and dive with the same keys the drone uses.
+    gremlinLift = gremlin.active
+      ? (input.isHeld(KEY_JUMP) ? 1 : 0)
+        - (input.isHeld(KEY_DESCEND_LEFT) || input.isHeld(KEY_DESCEND_RIGHT) ? 1 : 0)
+      : 0;
+    if (gremlin.active && input.consumePress(KEY_GREMLIN)) {
+      gremlin.trigger('smoke', drone.position);
+    }
     if (input.consumePress(KEY_DROP_CUBE)) testCube.drop();
 
     moveInput.set(0, 0);
@@ -224,6 +303,10 @@ async function boot(): Promise<void> {
         moveInput.set(strafe, forward);
         if (input.pointerLocked) camera.look(input.mouseDeltaX, input.mouseDeltaY);
         if (input.consumePress(KEY_JUMP)) runner.queueJump();
+        if (input.consumePress(KEY_SWAT) && hazards.swat(runner, drone, camera.heading)) {
+          juice.swatConnected();
+        }
+        if (input.consumePress(KEY_THROW)) hazards.toggleProp(runner, camera.heading);
       } else {
         droneInput.move.set(strafe, forward);
         const descending = input.isHeld(KEY_DESCEND_LEFT) || input.isHeld(KEY_DESCEND_RIGHT);
@@ -242,6 +325,8 @@ async function boot(): Promise<void> {
     runner.render(physics.alpha, frameDelta);
     drone.render(physics.alpha, frameDelta, fuse.telegraphProgress);
     testCube.render(physics.alpha);
+    hazards.render(physics.alpha, frameDelta, runner);
+    gremlin.render(frameDelta);
     confetti.update(frameDelta);
     hud.update(fuse);
     whine.update(
@@ -286,6 +371,8 @@ async function boot(): Promise<void> {
       );
     }
 
+    juice.apply(view.camera, realDelta, CAMERA_FOV);
+
     overlay.setExtraLines([
       `piloting     ${orbitMode ? 'free cam (debug)' : pilot}`,
       `network      ${net.connected ? `online (${net.sessionId.slice(0, 6)})` : net.error ?? 'offline — single player'}`,
@@ -298,6 +385,13 @@ async function boot(): Promise<void> {
         `  charge ${(objective.charge * 100).toFixed(1)}%` +
         `  in zone ${objective.status().present}/${objective.status().needed}` +
         `${objective.fired ? '  EMP FIRED — RUNNERS WIN' : ''}`,
+      `gremlin      ${gremlin.status().active ? `flying · triggers ${gremlin.status().actionsLeft}` : 'inactive'}` +
+        `${gremlin.status().blocked ? ` (${gremlin.status().blocked})` : ''}`,
+      `hazards      swat ${hazards.status().swatCooldown.toFixed(1)}s` +
+        `  prop ${hazards.status().holdingProp ? 'held' : '-'}` +
+        `  net ${hazards.status().netSlow > 0 ? 'TANGLED' : '-'}` +
+        `  knocked ${drone.knocked ? 'YES' : 'no'}` +
+        `  sabotaged [${hazards.disabledPadIndices().join(',')}]`,
       `pads free    ${objective.availablePads().length}/3   camera ${fpvMode && pilot === 'drone' ? 'FPV' : 'chase'}`,
       ...runner.debugLines(),
       ...drone.debugLines(),
@@ -305,13 +399,14 @@ async function boot(): Promise<void> {
       `camera       boom ${camera.boomLength.toFixed(2)} / ${CAMERA_DISTANCE.toFixed(1)} m`,
       `draw calls   ${view.renderer.info.render.calls}   tris ${view.renderer.info.render.triangles}`,
       '',
-      'E interact · C swap pilot · V FPV · R respawn · B drop cube · O free cam',
+      'E interact · F swat · Q grab/throw · G gremlin · C swap · V FPV · R respawn · O free cam',
     ]);
     overlay.update(frameDelta, physics);
 
     // Server-authoritative state, rendered verbatim and never recomputed.
     const snapshot = net.snapshot();
     if (snapshot) {
+      lobby.update(snapshot, net.sessionId);
       avatars.update(snapshot, net.sessionId, frameDelta);
       fuse.charge = snapshot.battery;
       fuse.cycle = snapshot.cycle;
@@ -329,6 +424,16 @@ async function boot(): Promise<void> {
 
     if (empFlash > 0) empFlash = Math.max(0, empFlash - frameDelta);
     hud.updateObjective(objective.status(), empFlash / EMP_FLASH_TIME);
+    sfx.setEmpCharge(objective.fired ? 0 : objective.charge);
+    // Core count changing is the cue for the insert clunk.
+    if (objective.status().inserted !== lastInserted) {
+      lastInserted = objective.status().inserted;
+      sfx.click(CLICK_PITCH_INSERT);
+    }
+    if (runner.carrying !== lastCarrying) {
+      lastCarrying = runner.carrying;
+      if (lastCarrying) sfx.click(CLICK_PITCH_PICKUP);
+    }
 
     input.endFrame();
     if (fpv.visible) fpv.render(view.scene);

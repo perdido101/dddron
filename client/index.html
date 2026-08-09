@@ -210,6 +210,77 @@
         pointer-events: none;
         z-index: 31;
       }
+      #lobby {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: rgba(20, 27, 34, 0.82);
+        backdrop-filter: blur(3px);
+        z-index: 40;
+      }
+      .lobby-card {
+        width: 330px;
+        padding: 26px 28px 30px;
+        border-radius: 16px;
+        background: #f4f7fb;
+        color: #223;
+        text-align: center;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+      }
+      .lobby-card h1 {
+        margin: 0 0 2px;
+        font-size: 34px;
+        letter-spacing: 0.12em;
+      }
+      .lobby-sub {
+        margin: 0 0 16px;
+        font-size: 10px;
+        letter-spacing: 0.2em;
+        opacity: 0.6;
+      }
+      .lobby-card input {
+        width: 100%;
+        padding: 10px 12px;
+        margin-bottom: 9px;
+        border: 2px solid #ccd6e2;
+        border-radius: 9px;
+        font: inherit;
+        font-size: 14px;
+        text-align: center;
+        box-sizing: border-box;
+      }
+      .lobby-card button {
+        width: 100%;
+        padding: 11px;
+        margin-bottom: 8px;
+        border: 0;
+        border-radius: 9px;
+        background: #7fd4a8;
+        color: #12301f;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        cursor: pointer;
+      }
+      .lobby-card button:disabled { background: #ccd6e2; color: #7d8b99; cursor: not-allowed; }
+      .lobby-card button.lobby-solo { background: transparent; color: #5a6b7d; font-weight: 400; letter-spacing: 0; }
+      .lobby-join { display: flex; gap: 8px; }
+      .lobby-join input { flex: 1; letter-spacing: 0.3em; font-weight: 700; }
+      .lobby-join button { flex: 0 0 88px; background: #9ba8f0; color: #1a1f3d; }
+      .lobby-codelabel { letter-spacing: 0.34em; font-size: 40px; }
+      .lobby-players, .lobby-scores {
+        list-style: none;
+        margin: 0 0 14px;
+        padding: 0;
+        font-size: 13px;
+        text-align: left;
+        font-variant-numeric: tabular-nums;
+      }
+      .lobby-players li, .lobby-scores li { padding: 4px 0; border-bottom: 1px solid #e3e9f0; }
+      .lobby-hint, .lobby-status, .lobby-awards { margin: 6px 0 0; font-size: 11px; opacity: 0.65; }
+      .lobby-result-cause { margin: 0 0 14px; font-size: 12px; opacity: 0.7; }
       #boot {
         position: fixed;
         inset: 0;

@@ -91,6 +91,11 @@ export class PropWhine {
     return this.context !== null && this.context.state === 'running';
   }
 
+  /** The shared AudioContext, so one-shots ride the same graph. */
+  get audioContext(): AudioContext | null {
+    return this.context;
+  }
+
   /**
    * @param throttle 0-1, how hard the rotors are working.
    * @param telegraph 0-1, how far into the final seconds of the fuse.
@@ -147,6 +152,108 @@ export class PropWhine {
     this.gain.gain.setTargetAtTime(muted ? 0 : PROP_WHINE_GAIN, now, AUDIO_SMOOTHING);
   }
 }
+
+/**
+ * One-shot effects.
+ *
+ * The asset manifest routes the detonation pop, core clicks and EMP fire to
+ * ElevenLabs files. Those are not sourced yet — the manifest's own rule is to
+ * acquire nothing before phase 9 is signed off — so these are synthesised
+ * stand-ins that occupy the right slots in the mix. The EMP charge whine and
+ * the UI clicks are marked WEBAUDIO in the manifest and are meant to stay
+ * synthesised permanently.
+ */
+export class Sfx {
+  private context: AudioContext | null = null;
+  private empGain: GainNode | null = null;
+  private empOsc: OscillatorNode | null = null;
+
+  attach(context: AudioContext | null): void {
+    if (!context || this.context) return;
+    this.context = context;
+
+    // The EMP charge whine is a continuous rising sawtooth, so it lives as a
+    // permanent voice whose gain and pitch are driven by charge progress.
+    this.empOsc = context.createOscillator();
+    this.empOsc.type = 'sawtooth';
+    this.empOsc.frequency.value = EMP_WHINE_BASE_HZ;
+    this.empGain = context.createGain();
+    this.empGain.gain.value = 0;
+    this.empOsc.connect(this.empGain);
+    this.empGain.connect(context.destination);
+    this.empOsc.start();
+  }
+
+  /** PLACEHOLDER for the ElevenLabs "detonation pop" — party popper, not a bomb. */
+  detonation(): void {
+    const context = this.context;
+    if (!context) return;
+    const now = context.currentTime;
+
+    // Short noise burst with a fast decay: a pop, not an explosion.
+    const length = Math.floor(context.sampleRate * POP_SECONDS);
+    const buffer = context.createBuffer(1, length, context.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i += 1) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** POP_DECAY;
+    }
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+
+    const filter = context.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = POP_FILTER_HZ;
+    const gain = context.createGain();
+    gain.gain.value = POP_GAIN;
+
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(context.destination);
+    source.start(now);
+  }
+
+  /** PLACEHOLDER for the ElevenLabs core pickup / insert clicks. */
+  click(pitch: number): void {
+    const context = this.context;
+    if (!context) return;
+    const now = context.currentTime;
+    const osc = context.createOscillator();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(CLICK_BASE_HZ * pitch, now);
+    osc.frequency.exponentialRampToValueAtTime(CLICK_BASE_HZ * pitch * 0.5, now + CLICK_SECONDS);
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(CLICK_GAIN, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + CLICK_SECONDS);
+    osc.connect(gain);
+    gain.connect(context.destination);
+    osc.start(now);
+    osc.stop(now + CLICK_SECONDS);
+  }
+
+  /** @param charge 0-1 across EMP_CHARGE_TIME; rises into the fire. */
+  setEmpCharge(charge: number): void {
+    const context = this.context;
+    if (!context || !this.empGain || !this.empOsc) return;
+    const now = context.currentTime;
+    this.empGain.gain.setTargetAtTime(charge > 0 ? charge * EMP_WHINE_GAIN : 0, now, AUDIO_SMOOTHING);
+    this.empOsc.frequency.setTargetAtTime(
+      EMP_WHINE_BASE_HZ + charge * EMP_WHINE_RISE_HZ,
+      now,
+      AUDIO_SMOOTHING,
+    );
+  }
+}
+
+const POP_SECONDS = 0.28;
+const POP_DECAY = 3;
+const POP_FILTER_HZ = 900;
+const POP_GAIN = 0.35;
+const CLICK_BASE_HZ = 660;
+const CLICK_SECONDS = 0.07;
+const CLICK_GAIN = 0.12;
+const EMP_WHINE_BASE_HZ = 90;
+const EMP_WHINE_RISE_HZ = 620;
+const EMP_WHINE_GAIN = 0.1;
 
 /** Time constant for every audio ramp; avoids zipper noise on fast changes. */
 const AUDIO_SMOOTHING = 0.03;

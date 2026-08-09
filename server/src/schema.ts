@@ -25,6 +25,14 @@ export class PlayerState extends Schema {
   carrying = false;
   /** Client's own tick, so late packets can be dropped. */
   seq = 0;
+  ready = false;
+  /** Rounds this player has flown the drone, for phase 9 rotation. */
+  flown = 0;
+  score = 0;
+  /** Joke-award counters (phase 9). */
+  survived = 0;
+  coresDropped = 0;
+  fanLaunches = 0;
 }
 defineTypes(PlayerState, {
   sessionId: 'string',
@@ -37,6 +45,12 @@ defineTypes(PlayerState, {
   alive: 'boolean',
   carrying: 'boolean',
   seq: 'uint32',
+  ready: 'boolean',
+  flown: 'uint8',
+  score: 'uint16',
+  survived: 'uint8',
+  coresDropped: 'uint8',
+  fanLaunches: 'uint8',
 });
 
 export class CoreEntity extends Schema {
@@ -81,6 +95,15 @@ export class GameState extends Schema {
   empNeeded = 1;
 
   roundRemaining = 0;
+
+  /** 4-letter join code, shown in the lobby. */
+  code = '';
+  /** Session id of the host, who alone may start. */
+  host = '';
+  round = 0;
+  totalRounds = 0;
+  /** Drone knockdown, so every client can see it is grounded (phase 7). */
+  droneKnocked = false;
 }
 defineTypes(GameState, {
   players: { map: PlayerState },
@@ -96,4 +119,9 @@ defineTypes(GameState, {
   empPresent: 'uint8',
   empNeeded: 'uint8',
   roundRemaining: 'float32',
+  code: 'string',
+  host: 'string',
+  round: 'uint8',
+  totalRounds: 'uint8',
+  droneKnocked: 'boolean',
 });
