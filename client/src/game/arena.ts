@@ -85,6 +85,13 @@ export class Arena {
   private readonly propMaterial = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
   private readonly hedgeMaterial = new THREE.MeshLambertMaterial({ color: COLOR_HEDGE });
 
+  /**
+   * Greybox meshes the art pass may stand in for, by key. Colliders are never
+   * in here — session 8's rule is that dressing swaps VISUALS only, and a
+   * failed model load must leave the greybox exactly as validated.
+   */
+  private readonly dressable = new Map<string, THREE.Mesh[]>();
+
   constructor(
     private readonly physics: Physics,
     private readonly scene: THREE.Scene,
@@ -107,6 +114,7 @@ export class Arena {
     size: THREE.Vector3Like,
     material: THREE.Material | null,
     rotation?: THREE.Quaternion,
+    dressKey?: string,
   ): void {
     const body = this.physics.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z),
@@ -126,6 +134,7 @@ export class Arena {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     this.scene.add(mesh);
+    this.registerDressable(dressKey, mesh);
   }
 
   private cylinder(
@@ -134,6 +143,7 @@ export class Arena {
     height: number,
     material: THREE.Material,
     castShadow = true,
+    dressKey?: string,
   ): void {
     const body = this.physics.world.createRigidBody(
       RAPIER.RigidBodyDesc.fixed().setTranslation(center.x, center.y, center.z),
@@ -150,6 +160,37 @@ export class Arena {
     mesh.castShadow = castShadow;
     mesh.receiveShadow = true;
     this.scene.add(mesh);
+    this.registerDressable(dressKey, mesh);
+  }
+
+  private registerDressable(key: string | undefined, mesh: THREE.Mesh): void {
+    if (!key) return;
+    const list = this.dressable.get(key) ?? [];
+    list.push(mesh);
+    this.dressable.set(key, list);
+  }
+
+  /** Hide a greybox piece whose dressed replacement is now in the scene. */
+  concealDressed(key: string): void {
+    for (const mesh of this.dressable.get(key) ?? []) mesh.visible = false;
+  }
+
+  /** Dev-only: which greybox pieces are still showing, key by key. */
+  dressedReport(): Record<string, boolean> {
+    const report: Record<string, boolean> = {};
+    for (const [key, meshes] of this.dressable) {
+      report[key] = meshes.every((mesh) => !mesh.visible);
+    }
+    return report;
+  }
+
+  /**
+   * Give a greybox piece a real material instead of hiding it — the windmill
+   * tower is a cylinder no modular kit piece can replace, so it keeps its
+   * validated geometry and borrows the kit's plaster.
+   */
+  applyDressedMaterial(key: string, material: THREE.Material): void {
+    for (const mesh of this.dressable.get(key) ?? []) mesh.material = material;
   }
 
   private buildGround(): void {
@@ -216,6 +257,8 @@ export class Arena {
       WINDMILL_RADIUS,
       height,
       this.wallMaterial,
+      true,
+      'windmill',
     );
   }
 
@@ -227,14 +270,20 @@ export class Arena {
    * The barn is the one traversable interior, below.
    */
   private buildCottages(): void {
-    for (const [x, z, sizeX, sizeZ, roofY] of COTTAGES) {
-      this.box({ x, y: roofY / 2, z }, { x: sizeX, y: roofY, z: sizeZ }, this.wallMaterial);
-    }
+    COTTAGES.forEach(([x, z, sizeX, sizeZ, roofY], i) => {
+      this.box(
+        { x, y: roofY / 2, z },
+        { x: sizeX, y: roofY, z: sizeZ },
+        this.wallMaterial,
+        undefined,
+        `cottage${i}`,
+      );
+    });
 
     // Crate stairs: each stack rises CRATE_STEP_RISE per box, ending a
     // jumpable gap below its roof. The boxes run from the ground up so the
     // collider is one simple cuboid per step.
-    for (const [baseX, baseZ, stepX, stepZ, topY] of CRATE_STAIRS) {
+    CRATE_STAIRS.forEach(([baseX, baseZ, stepX, stepZ, topY], stair) => {
       const steps = Math.round(topY / CRATE_STEP_RISE);
       for (let i = 0; i < steps; i += 1) {
         const height = CRATE_STEP_RISE * (i + 1);
@@ -247,9 +296,11 @@ export class Arena {
           },
           { x: CRATE_STEP_SIZE, y: height, z: CRATE_STEP_SIZE },
           this.propMaterial,
+          undefined,
+          `stairs${stair}`,
         );
       }
-    }
+    });
   }
 
   /**
@@ -269,11 +320,15 @@ export class Arena {
       { x, y: wallTop / 2, z: z - sizeZ / 2 + t / 2 },
       { x: sizeX, y: wallTop, z: t },
       this.wallMaterial,
+      undefined,
+      'barn',
     );
     this.box(
       { x, y: wallTop / 2, z: z + sizeZ / 2 - t / 2 },
       { x: sizeX, y: wallTop, z: t },
       this.wallMaterial,
+      undefined,
+      'barn',
     );
 
     // East and west walls each carry a centred door: two piers plus a lintel.
@@ -285,52 +340,62 @@ export class Arena {
           { x: wallX, y: wallTop / 2, z: z + (pierSide * (doorW + pierLength)) / 2 },
           { x: t, y: wallTop, z: pierLength },
           this.wallMaterial,
+          undefined,
+          'barn',
         );
       }
       this.box(
         { x: wallX, y: doorH + (wallTop - doorH) / 2, z },
         { x: t, y: wallTop - doorH, z: doorW },
         this.wallMaterial,
+        undefined,
+        'barn',
       );
     }
 
-    // Roof slab: walkable from the hay-bale stair.
+    // Roof slab: walkable from the hay-bale stair. Dressed separately from the
+    // walls, because its wooden deck survives even if the wall shells fail.
     this.box(
       { x, y: wallTop + BARN_ROOF_THICKNESS / 2, z },
       { x: sizeX, y: BARN_ROOF_THICKNESS, z: sizeZ },
       this.propMaterial,
+      undefined,
+      'barnRoof',
     );
   }
 
   /** Stone walls, hedgerows and market stalls: partial cover, all hop-able. */
   private buildCover(): void {
-    for (const [x, z, length, yaw] of STONE_WALLS) {
+    STONE_WALLS.forEach(([x, z, length, yaw], i) => {
       const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0));
       this.box(
         { x, y: STONE_WALL_HEIGHT / 2, z },
         { x: length, y: STONE_WALL_HEIGHT, z: STONE_WALL_THICKNESS },
         this.wallMaterial,
         rotation,
+        `stonewall${i}`,
       );
-    }
-    for (const [x, z, length, yaw] of HEDGES) {
+    });
+    HEDGES.forEach(([x, z, length, yaw], i) => {
       const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0));
       this.box(
         { x, y: HEDGE_HEIGHT / 2, z },
         { x: length, y: HEDGE_HEIGHT, z: HEDGE_THICKNESS },
         this.hedgeMaterial,
         rotation,
+        `hedge${i}`,
       );
-    }
-    for (const [x, z, yaw] of MARKET_STALLS) {
+    });
+    MARKET_STALLS.forEach(([x, z, yaw], i) => {
       const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0));
       this.box(
         { x, y: STALL_HEIGHT / 2, z },
         { x: STALL_SIZE, y: STALL_HEIGHT, z: STALL_SIZE },
         this.propMaterial,
         rotation,
+        `stall${i}`,
       );
-    }
+    });
   }
 
   /**

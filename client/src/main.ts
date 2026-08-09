@@ -49,7 +49,7 @@ import { Objective } from './game/objective';
 import { Runner } from './game/runner';
 import { SoloBots } from './game/soloBots';
 import { TestCube } from './game/testCube';
-import { Village, dressArena, loadVillage } from './game/village';
+import { Village, dressArena, dressStructures, loadVillage } from './game/village';
 import { Connection, resolveEndpoint, type NetSnapshot } from './net/connection';
 import { RemoteAvatars } from './net/remoteAvatars';
 import { DevConsole } from './ui/devConsole';
@@ -326,8 +326,14 @@ async function boot(): Promise<void> {
   });
   void loadProps().then((props) => hazards.setPropModels(props));
   // Set dressing. Loaded last and never awaited: the arena is the game, the
-  // village is what it stands in, and one must not delay the other.
-  void loadVillage().then((pieces) => dressArena(new Village(view.scene), pieces));
+  // village is what it stands in, and one must not delay the other. The
+  // structures pass dresses the greybox colliders in kit meshes (session 8);
+  // the arena pass scatters the decoration around them.
+  void loadVillage().then((pieces) => {
+    const village = new Village(view.scene);
+    dressStructures(village, pieces, arena, hazards);
+    dressArena(village, pieces);
+  });
 
   const sizeFpv = (): void => fpv.resize(window.innerWidth, window.innerHeight);
   sizeFpv();
@@ -396,6 +402,7 @@ async function boot(): Promise<void> {
       // What is actually being drawn. Online there must be exactly one drone
       // and one set of cores; a duplicated local copy shows up here as a
       // non-zero localCores or a visible local drone that nobody is flying.
+      dressed: () => arena.dressedReport(),
       census: () => ({
         localCores: objective.cores.filter((core) => core.mesh.visible).length,
         localCorePositions: objective.cores.map((core) => [

@@ -792,9 +792,10 @@ export const HEAD_TURN_EASE = 0.09;
 /**
  * Village dressing. Decorative only — nothing here has a collider, because the
  * arena's collision layout is tuned and set dressing must not move a surface a
- * player can touch.
+ * player can touch. The module is the native width of the environment kit's
+ * wall panel (Quaternius Medieval Village MegaKit): 2 m.
  */
-export const VILLAGE_MODULE = 1.0;
+export const VILLAGE_MODULE = 2.0;
 /** Radius the ring of houses sits on, outside the arena walls. */
 export const VILLAGE_HOUSE_RING = 50.0;
 export const VILLAGE_TREE_COUNT = 54;

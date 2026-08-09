@@ -55,28 +55,53 @@ export interface AssetEntry {
 export const ASSET_MANIFEST: Record<string, AssetEntry> = {
   'runner.character': { file: 'kenney-blocky/character.glb' },
 
-  'prop.throwable.0': { file: 'kenney-survival/box.glb' },
-  'prop.throwable.1': { file: 'kenney-survival/bucket.glb' },
-  'prop.throwable.2': { file: 'kenney-survival/barrel.glb' },
-  'prop.throwable.3': { file: 'kenney-survival/rock-a.glb' },
+  'prop.throwable.0': { file: 'quaternius-village/Prop_Crate.gltf' },
+  'prop.throwable.1': { file: 'quaternius-village/Prop_Brick2.gltf' },
+  'prop.throwable.2': { file: 'quaternius-nature/Rock_Medium_2.gltf' },
+  'prop.throwable.3': { file: 'quaternius-nature/Pebble_Square_6.gltf' },
 
-  'village.wall': { file: 'kenney-town/wall.glb' },
-  'village.wallDoor': { file: 'kenney-town/wall-door.glb' },
-  'village.wallWindow': { file: 'kenney-town/wall-window-shutters.glb' },
-  'village.roof': { file: 'kenney-town/roof.glb' },
-  'village.roofGable': { file: 'kenney-town/roof-gable.glb' },
-  'village.fence': { file: 'kenney-town/fence.glb' },
-  'village.cart': { file: 'kenney-town/cart.glb' },
-  'village.stall': { file: 'kenney-town/stall-red.glb' },
-  'village.lantern': { file: 'kenney-town/lantern.glb' },
-  'village.townTree': { file: 'kenney-town/tree.glb' },
-  'village.grass': { file: 'kenney-nature/grass.glb' },
-  'village.grassLarge': { file: 'kenney-nature/grass_large.glb' },
-  'village.flowerRed': { file: 'kenney-nature/flower_redA.glb' },
-  'village.flowerYellow': { file: 'kenney-nature/flower_yellowA.glb' },
-  'village.tree': { file: 'kenney-nature/tree_default.glb' },
-  'village.treeBlocks': { file: 'kenney-nature/tree_blocks.glb' },
-  'village.stone': { file: 'kenney-nature/stone_smallA.glb' },
+  // Session 8: the environment is the Quaternius family (Medieval Village
+  // MegaKit + Stylized Nature MegaKit, both CC0) — one source, per handoff 03
+  // section 6. The character stays on its locked rig above.
+  'village.wallPlaster': { file: 'quaternius-village/Wall_Plaster_Straight.gltf' },
+  'village.wallPlasterDoor': { file: 'quaternius-village/Wall_Plaster_Door_Flat.gltf' },
+  'village.wallPlasterWindow': { file: 'quaternius-village/Wall_Plaster_Window_Wide_Flat.gltf' },
+  'village.wallBrick': { file: 'quaternius-village/Wall_UnevenBrick_Straight.gltf' },
+  'village.wallBrickDoor': { file: 'quaternius-village/Wall_UnevenBrick_Door_Flat.gltf' },
+  'village.wallBrickWindow': { file: 'quaternius-village/Wall_UnevenBrick_Window_Wide_Flat.gltf' },
+  'village.roofSmall': { file: 'quaternius-village/Roof_RoundTiles_4x4.gltf' },
+  'village.roofMedium': { file: 'quaternius-village/Roof_RoundTiles_4x6.gltf' },
+  'village.roofLarge': { file: 'quaternius-village/Roof_RoundTiles_6x8.gltf' },
+  'village.roofTower': { file: 'quaternius-village/Roof_Tower_RoundTiles.gltf' },
+  'village.roofPlank': { file: 'quaternius-village/Roof_Wooden_2x1.gltf' },
+  'village.floorWood': { file: 'quaternius-village/Floor_WoodDark.gltf' },
+  'village.stairs': { file: 'quaternius-village/Stairs_Exterior_Straight.gltf' },
+  'village.crate': { file: 'quaternius-village/Prop_Crate.gltf' },
+  'village.wagon': { file: 'quaternius-village/Prop_Wagon.gltf' },
+  'village.chimney': { file: 'quaternius-village/Prop_Chimney.gltf' },
+  'village.fence': { file: 'quaternius-village/Prop_WoodenFence_Single.gltf' },
+  'village.fenceLong': { file: 'quaternius-village/Prop_WoodenFence_Extension1.gltf' },
+  'village.border': { file: 'quaternius-village/Prop_ExteriorBorder_Straight1.gltf' },
+
+  'village.tree1': { file: 'quaternius-nature/CommonTree_1.gltf' },
+  'village.tree2': { file: 'quaternius-nature/CommonTree_2.gltf' },
+  'village.tree3': { file: 'quaternius-nature/CommonTree_3.gltf' },
+  'village.pine1': { file: 'quaternius-nature/Pine_1.gltf' },
+  'village.pine2': { file: 'quaternius-nature/Pine_2.gltf' },
+  'village.treeLandmark': { file: 'quaternius-nature/TwistedTree_1.gltf' },
+  // Both bush entries use the flowering variant: the kit's plain bush GLTF
+  // mis-references the twisted tree's RED leaf sheet (engine versions retint
+  // it), and a hedgerow of green-with-flowers beats a hedgerow of maroon.
+  'village.bush': { file: 'quaternius-nature/Bush_Common_Flowers.gltf' },
+  'village.bushFlowers': { file: 'quaternius-nature/Bush_Common_Flowers.gltf' },
+  'village.grassShort': { file: 'quaternius-nature/Grass_Common_Short.gltf' },
+  'village.grassTall': { file: 'quaternius-nature/Grass_Common_Tall.gltf' },
+  'village.grassWispy': { file: 'quaternius-nature/Grass_Wispy_Tall.gltf' },
+  'village.flowerPink': { file: 'quaternius-nature/Flower_3_Group.gltf' },
+  'village.flowerTall': { file: 'quaternius-nature/Flower_4_Group.gltf' },
+  'village.clover': { file: 'quaternius-nature/Clover_1.gltf' },
+  'village.rock': { file: 'quaternius-nature/Rock_Medium_1.gltf' },
+  'village.pebble': { file: 'quaternius-nature/Pebble_Round_2.gltf' },
 };
 
 export interface LoadedAsset {
@@ -163,7 +188,15 @@ function overrideMaterials(root: THREE.Object3D, entry: AssetEntry): void {
     const material = new THREE.MeshLambertMaterial({
       map: source.map ?? null,
       color: source.color ? source.color.clone() : new THREE.Color(0xffffff),
-      vertexColors: (node.geometry as THREE.BufferGeometry).hasAttribute('color'),
+      // Trust the material's own declaration, not the attribute's presence:
+      // some kits park non-colour data in COLOR_0, and multiplying it in
+      // turns green canopies maroon.
+      vertexColors: source.vertexColors === true,
+      // Foliage cards live or die on these: leaves ship as alpha-cutout
+      // planes, and flattening them to opaque single-sided Lambert turns
+      // every tree into a black blob.
+      side: source.side ?? THREE.FrontSide,
+      alphaTest: source.alphaTest > 0 ? source.alphaTest : source.transparent ? 0.5 : 0,
     });
     if (entry.tint !== undefined) material.color.multiply(new THREE.Color(entry.tint));
     if (entry.emissive !== undefined) {

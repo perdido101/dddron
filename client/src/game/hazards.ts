@@ -30,7 +30,7 @@ import type { Runner } from './runner';
 /** A loose prop that can be picked up and thrown at the drone. */
 interface Throwable {
   body: RAPIER.RigidBody;
-  /** A sphere at boot, a Kenney prop once the models land. */
+  /** A sphere at boot, a kit prop once the models land. */
   mesh: THREE.Object3D;
   transform: InterpolatedTransform;
   held: boolean;
@@ -58,7 +58,7 @@ export class Hazards {
   knockdownRequested = false;
 
   private readonly throwables: Throwable[] = [];
-  private readonly fans: THREE.Mesh[] = [];
+  private readonly fans: THREE.Object3D[] = [];
   /** Per-rotor sweep radius, parallel to `fans`. */
   private readonly fanRadii: number[] = [];
   private readonly nets: { mesh: THREE.Mesh; x: number; z: number; width: number; yaw: number }[] = [];
@@ -172,8 +172,8 @@ export class Hazards {
   }
 
   /**
-   * Swap the placeholder spheres for the Kenney props (crate, bucket, barrel,
-   * rock — CC0). Called once the models load, mid-game if need be: each mesh
+   * Swap the placeholder spheres for the kit props (crate, brick, rock,
+   * pebble — CC0). Called once the models load, mid-game if need be: each mesh
    * is replaced under its existing rigid body, so nothing about the physics,
    * the throw or the knockdown changes.
    */
@@ -203,6 +203,44 @@ export class Hazards {
 
   get isEnabled(): boolean {
     return this.enabled;
+  }
+
+  /**
+   * Dress a rotor as windmill sails (session 8): four copies of a kit plank
+   * radiating from the hub, replacing the greybox blade under the SAME
+   * spinning transform. The wash maths reads position and radius, neither of
+   * which moves, so the hazard is untouched — only its costume changes.
+   */
+  dressFan(index: number, plank: THREE.Object3D): void {
+    const blade = this.fans[index];
+    const radius = this.fanRadii[index];
+    if (!blade || radius === undefined) return;
+
+    const sails = new THREE.Group();
+    sails.position.copy(blade.position);
+    const bounds = new THREE.Box3().setFromObject(plank);
+    const length = Math.max(bounds.max.x - bounds.min.x, 1e-3);
+
+    for (let arm = 0; arm < SAIL_COUNT; arm += 1) {
+      const copy = plank.clone(true);
+      const holder = new THREE.Group();
+      // Scale the plank to reach from hub to sweep edge, lay it flat, then
+      // swing the whole arm around the hub.
+      const armLength = radius * 0.95;
+      copy.scale.setScalar(armLength / length);
+      copy.position.x = armLength / 2 - (bounds.min.x + bounds.max.x) / 2 * (armLength / length);
+      copy.rotation.x = -Math.PI / 2;
+      holder.add(copy);
+      holder.rotation.y = (arm / SAIL_COUNT) * Math.PI * 2;
+      holder.traverse((node) => {
+        if (node instanceof THREE.Mesh) node.castShadow = true;
+      });
+      sails.add(holder);
+    }
+
+    this.scene.remove(blade);
+    this.scene.add(sails);
+    this.fans[index] = sails;
   }
 
   /** One fixed step. Call before the world steps. */
@@ -467,6 +505,7 @@ const PROP_CARRY_HEIGHT = 1.3;
 const PROP_HIT_SPEED = 4.0;
 const PROP_HIT_RADIUS = 0.7;
 const THROW_LOFT = 0.35;
+const SAIL_COUNT = 4;
 const SABOTAGE_RADIUS = 2.2;
 const SWAT_FLASH_TIME = 0.18;
 const SWAT_ARC_OPACITY = 0.55;
