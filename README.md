@@ -52,16 +52,23 @@ Click the canvas to capture the mouse.
 
 ### Playing on your own
 
-A real match needs three people, but you do not need three people to see the
-game. In the lobby, switch **practice** on and add **bots**: the minimum drops
-to one player, the round plays out properly, and nothing is scored into a
-match. Pick **FLY** or **RUN** — if you choose to run and there are bots in the
-room, a bot takes the pilot seat rather than putting you in it.
+Two ways, and both give you a bot drone.
+
+**With the server** — in the lobby switch **practice** on and add **bots**. The
+minimum drops to one player, the round plays out properly, and nothing is
+scored into a match. Pick **FLY** or **RUN**; choose to run with bots in the
+room and a bot takes the pilot seat rather than the server putting you back in
+it.
+
+**Without the server** — the landing screen's solo block does the same thing
+offline: pick RUN or FLY, choose how many bot runners, and go. Offline bots are
+real bodies with the same controller, collider and objective as a player, not
+scenery, so the EMP genuinely needs them in the zone. They respawn on a timer,
+because offline has no round loop to reset anyone.
 
 Bots walk to the nearest free core, carry it to the station, insert it, and
 then stand in the charge zone. A bot flying the drone uses the same physics
-body and the same autopilot the single-player build uses, so it handles just as
-badly as a person would.
+body and the same autopilot, so it handles just as badly as a person would.
 
 ## Running it locally
 
@@ -130,12 +137,21 @@ Everything shipped is CC0 or OFL, downloaded without an account:
 | --- | --- | --- | --- |
 | Runner mesh + 27 animation clips | Kenney "Blocky Characters" | CC0 | 134 kB |
 | Throwable props — crate, bucket, barrel, rock | Kenney "Survival Kit" | CC0 | 92 kB |
+| Village — walls, roofs, doors, carts, stalls | Kenney "Fantasy Town Kit" | CC0 | 264 kB |
+| Grass, flowers, trees, stones | Kenney "Nature Kit" | CC0 | 84 kB |
 | UI font — Fredoka | Google Fonts | OFL 1.1 | 29 kB |
 
 The manifest routed animation to Mixamo, which needs an Adobe account. It turned
 out not to be needed: the Kenney GLB already carries idle, walk, sprint, die,
 pick-up, holding-both and attack-melee, which is every P0 and P1 clip on the
 list. Nothing is retargeted and no account was used.
+
+The village is decoration and nothing more: **no piece of it has a collider.**
+The arena's collision layout is tuned, so everything solid-looking sits outside
+the walls where nobody can reach it and everything inside is small enough to
+walk through. It is drawn with one InstancedMesh per distinct sub-mesh, which
+is what keeps nine houses down to roughly forty draw calls, and laid out from a
+seeded generator so every client sees the same village.
 
 Everything else is generated in code — the arena, pads, EMP station, cores,
 drone, confetti, the floor's ambient occlusion, the sky gradient, and every
