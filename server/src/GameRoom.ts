@@ -73,6 +73,12 @@ export class GameRoom extends Room<GameState> {
     // joining by code is ordinary Colyseus matchmaking rather than a lookup.
     this.state.code = (options.code ?? makeRoomCode()).toUpperCase();
     void this.setMetadata({ code: this.state.code });
+    // The cap is enforced here, not just counted: creation fails cleanly and
+    // the client's lobby shows the error instead of a hung room.
+    if (!telemetry.roomOpened()) {
+      throw new Error('server is full — try again in a few minutes');
+    }
+    console.log(`[room ${this.roomId}] created, code ${this.state.code}`);
     this.resetRound();
 
     this.onMessage('move', (client, message: MoveMessage) => {
@@ -134,12 +140,12 @@ export class GameRoom extends Room<GameState> {
       this.broadcast('knockdown', { by: client.sessionId });
     });
 
-    telemetry.roomOpened();
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs / 1000), 1000 / SERVER_BROADCAST_HZ);
   }
 
   override onDispose(): void {
     telemetry.roomClosed();
+    console.log(`[room ${this.roomId}] disposed (code ${this.state.code})`);
   }
 
   override onJoin(client: Client, options: { nickname?: string } = {}): void {
@@ -151,6 +157,7 @@ export class GameRoom extends Room<GameState> {
     player.role = this.hasDrone() ? 'runner' : 'drone';
     this.placeAtSpawn(player);
     this.state.players.set(client.sessionId, player);
+    console.log(`[room ${this.roomId}] join ${client.sessionId} "${player.nickname}" as ${player.role}`);
     // First one in hosts; if they leave, the next player inherits it.
     if (!this.state.host || !this.state.players.has(this.state.host)) {
       this.state.host = client.sessionId;
@@ -160,6 +167,7 @@ export class GameRoom extends Room<GameState> {
   override async onLeave(client: Client, consented: boolean): Promise<void> {
     const player = this.state.players.get(client.sessionId);
     if (!player) return;
+    console.log(`[room ${this.roomId}] leave ${client.sessionId} (${consented ? 'consented' : 'dropped'})`);
 
     // The drone leaving mid-round ends it immediately and unscored: there is no
     // game without a drone, and handing the role to someone mid-flight would be
@@ -275,11 +283,17 @@ export class GameRoom extends Room<GameState> {
       if (hold.timer < duration) continue;
 
       if (hold.kind === 'pickup') {
-        core.state = 'carried';
-        core.carrier = sessionId;
-        core.pad = -1;
-        player.carrying = true;
-      } else {
+        // Re-check at the moment of completion: if another runner's hold on
+        // this core finished first (same tick or an earlier one), the core is
+        // already carried, and granting it again would silently steal it while
+        // leaving the first carrier flagged as still holding it.
+        if (core.state === 'onPad' || core.state === 'loose') {
+          core.state = 'carried';
+          core.carrier = sessionId;
+          core.pad = -1;
+          player.carrying = true;
+        }
+      } else if (core.state === 'carried' && core.carrier === sessionId) {
         core.state = 'inserted';
         core.carrier = '';
         core.pad = -1;

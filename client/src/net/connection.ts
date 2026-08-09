@@ -237,7 +237,26 @@ export class Connection {
  */
 export function resolveEndpoint(): string {
   const fromQuery = new URLSearchParams(window.location.search).get('server');
-  if (fromQuery !== null) return fromQuery;
+  if (fromQuery !== null) return normaliseEndpoint(fromQuery);
   const fromEnv = import.meta.env.VITE_SERVER_URL;
-  return typeof fromEnv === 'string' ? fromEnv : '';
+  if (typeof fromEnv === 'string' && fromEnv) return normaliseEndpoint(fromEnv);
+  // Local dev falls back to the local server automatically (handoff 02).
+  // `?server=` with an empty value still forces solo when that is wanted.
+  if (import.meta.env.DEV) return 'ws://localhost:2567';
+  return '';
+}
+
+/**
+ * The page is HTTPS in production, and browsers refuse an insecure socket
+ * from a secure page — so ws:// is upgraded rather than left to fail with an
+ * opaque mixed-content error.
+ */
+function normaliseEndpoint(raw: string): string {
+  if (!raw) return '';
+  let url = raw.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://');
+  if (window.location.protocol === 'https:' && url.startsWith('ws://')) {
+    console.warn('BUZZKILL: upgrading server endpoint to wss:// (mixed content)');
+    url = `wss://${url.slice('ws://'.length)}`;
+  }
+  return url;
 }
