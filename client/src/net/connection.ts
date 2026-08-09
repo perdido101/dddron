@@ -169,7 +169,7 @@ export class Connection {
         this.error = `server error ${code}: ${message ?? 'unknown'}`;
       });
     } catch (cause) {
-      this.error = `could not reach the server — ${String(cause)}`;
+      this.error = `could not reach the server (${describe(cause)})`;
       this.room = null;
     }
   }
@@ -363,6 +363,22 @@ export class Connection {
     await this.room?.leave(true);
     this.room = null;
   }
+}
+
+/**
+ * Turn whatever the socket threw into something a player can read.
+ *
+ * A failed WebSocket rejects with a ProgressEvent, which stringifies to
+ * "[object ProgressEvent]" — technically the truth and useless to everyone.
+ * The browser deliberately withholds the reason (it would leak whether a host
+ * exists), so there is nothing more specific to report and pretending
+ * otherwise would be worse.
+ */
+function describe(cause: unknown): string {
+  if (cause instanceof Error) return cause.message;
+  if (typeof cause === 'string') return cause;
+  if (typeof Event !== 'undefined' && cause instanceof Event) return 'connection refused';
+  return 'unknown error';
 }
 
 /** Seconds between pings, and how many samples the median is taken over. */

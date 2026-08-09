@@ -198,13 +198,13 @@ async function boot(): Promise<void> {
   const lobby = new Lobby({
     onCreate: (nickname) => {
       void net.connect(endpoint, nickname).then(() => {
-        if (net.error) lobby.setStatus(net.error);
+        if (net.error) lobby.setServerUnreachable(net.error);
         else lobby.enterRoom();
       });
     },
     onJoin: (nickname, code) => {
       void net.joinByCode(endpoint, nickname, code).then(() => {
-        if (net.error) lobby.setStatus(net.error);
+        if (net.error) lobby.setServerUnreachable(net.error);
         else lobby.enterRoom();
       });
     },

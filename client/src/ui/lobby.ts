@@ -173,6 +173,21 @@ export class Lobby {
     this.status.textContent = message;
   }
 
+  /**
+   * The server could not be reached.
+   *
+   * Solo play is normally a footnote, because the game is a party game. When
+   * there is no server it is the only thing that works, so it stops being a
+   * footnote and says so — a landing page whose two buttons both fail, with a
+   * grey link underneath, reads as broken rather than as degraded.
+   */
+  setServerUnreachable(message: string): void {
+    this.status.textContent = `${message} — the game server may be asleep or restarting.`;
+    const solo = this.pick<HTMLButtonElement>('.lobby-solo');
+    solo.classList.add('lobby-solo-primary');
+    solo.textContent = 'PLAY SOLO INSTEAD';
+  }
+
   hide(): void {
     this.root.style.display = 'none';
   }
