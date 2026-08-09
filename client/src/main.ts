@@ -376,6 +376,8 @@ async function boot(): Promise<void> {
   let interactHeld = false;
   let gremlinLift = 0;
   let lastInserted = 0;
+  /** Last winner seen in a snapshot, so the round-end emote fires once. */
+  let lastWinner: string | null = null;
   let lastCarrying = false;
   /** Insert count when carrying last changed, to tell a delivery from a drop. */
   let lastInsertedForCarry = 0;
@@ -461,7 +463,7 @@ async function boot(): Promise<void> {
     // Online the autopilot flies the bot drone against everyone in the room;
     // offline it flies the phase 4 scripted drone against the local runner.
     const quarry = net.connected ? autopilotTargets : runners;
-    let flown = pilot === 'drone' ? droneInput : autopilot.update(drone.position, quarry);
+    let flown = pilot === 'drone' ? droneInput : autopilot.update(drone.position, quarry, dt);
     if (testScript.length > 0) {
       // Deterministic scripted input (dev-only hook): consumed in fixed steps,
       // so frame rate cannot smear the sequence. Used for FPV parity proof.
@@ -540,6 +542,9 @@ async function boot(): Promise<void> {
       // Runners win the moment the EMP fires. The drone drops dead.
       empFlash = EMP_FLASH_TIME;
       drone.kill();
+      // Everyone on foot celebrates — the pack ships a victory emote, use it.
+      runner.playEmote(true);
+      for (const bot of soloBots.runners.slice(0, soloBotCount)) bot.playEmote(true);
     }
   });
   physics.onFixedPostStep(() => {
@@ -644,7 +649,11 @@ async function boot(): Promise<void> {
             sfx.whoosh();
           }
         }
-        if (input.consumePress(KEY_THROW)) hazards.toggleProp(runner, camera.heading);
+        if (input.consumePress(KEY_THROW)) {
+          const hadProp = hazards.status().holdingProp;
+          hazards.toggleProp(runner, camera.heading);
+          if (hadProp) runner.playThrow();
+        }
       } else {
         droneInput.move.set(strafe, forward);
         const descending = input.isHeld(KEY_DESCEND_LEFT) || input.isHeld(KEY_DESCEND_RIGHT);
@@ -768,6 +777,7 @@ async function boot(): Promise<void> {
     }
     devConsole?.setContext(snapshot !== null, snapshot?.devEnabled ?? false);
 
+    runner.handsFull = hazards.status().holdingProp;
     runner.render(physics.alpha, frameDelta, interactHeld, camera.heading);
     drone.render(physics.alpha, frameDelta, fuse.telegraphProgress, fuse.charge);
     arena.render(frameDelta);
@@ -939,6 +949,23 @@ async function boot(): Promise<void> {
           : action === 'pickup' ? 'hold E to pick up core' : null,
         holdProgress: action ? Math.min(netHoldTimer / duration, 1) : 0,
       };
+
+      // Round-end body language, once per result: the win emote belongs to
+      // whoever is on foot, the defeat shrug to a drone victory.
+      if (snapshot.winner !== lastWinner) {
+        lastWinner = snapshot.winner;
+        if (snapshot.winner === 'runners' || snapshot.winner === 'drone') {
+          const won = snapshot.winner === 'runners';
+          if (pilot === 'runner') runner.playEmote(won);
+          avatars.emote(won);
+        }
+      }
+    }
+
+    // A downed player staring at a frozen body with no explanation is the
+    // least friendly screen in the game. Say what happened and what to press.
+    if (!runner.alive && !status.fired && pilot === 'runner') {
+      status = { ...status, prompt: 'knocked out — press R to get back up', holdProgress: 0 };
     }
     hud.updateObjective(status, empFlash / EMP_FLASH_TIME);
     sfx.setEmpCharge(status.fired ? 0 : status.charge);

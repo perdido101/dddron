@@ -617,6 +617,16 @@ export const EMP_FLASH_COLOR = 0xffffff;
 
 /** Drifts toward the nearest runner inside this radius. No pathfinding. */
 export const AI_CHASE_RADIUS = 20.0;
+/**
+ * Pester budget: the autopilot harasses for this long, then breaks off and
+ * flies its patrol for AI_REST_TIME before it may chase again. Without the
+ * budget it hovers over the EMP station for whole minutes — watched live in a
+ * solo round, wash-dropping every carried core while three bots looped
+ * pickup-drop underneath it. Pressure in waves is also simply better to play
+ * against: the drone strafes in, causes chaos, and leaves a window.
+ */
+export const AI_CHASE_TIME = 7.0;
+export const AI_REST_TIME = 5.0;
 /** unspecified. Distance at which a patrol waypoint counts as reached. */
 export const AI_WAYPOINT_RADIUS = 4.0;
 /** unspecified. Altitude the scripted drone tries to hold while patrolling. */

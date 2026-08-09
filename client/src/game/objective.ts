@@ -257,6 +257,8 @@ export class Objective {
         carried.pad = null;
         actor.carrying = false;
         this.held.delete(actor);
+        // A slotted core is the game's biggest single beat; let the body say so.
+        actor.playEmote(true);
       });
       return;
     }

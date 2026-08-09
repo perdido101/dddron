@@ -35,6 +35,8 @@ interface Avatar {
   /** Previous position, so speed can drive the clip without a velocity feed. */
   readonly previous: THREE.Vector3;
   speed: number;
+  /** Seconds since this runner went down, for the visible-death linger. */
+  deadFor: number;
 }
 
 /**
@@ -85,7 +87,11 @@ export class RemoteAvatars {
       }
       avatar.target.set(player.x, player.y, player.z);
       avatar.targetYaw = player.yaw;
-      avatar.group.visible = player.alive || player.role === 'drone';
+      // Downed runners keep their body for a beat so the death clip is seen —
+      // a teammate blinking out of existence reads as a bug, not a knockout.
+      avatar.deadFor = player.alive ? 0 : avatar.deadFor + frameDelta;
+      avatar.group.visible =
+        player.alive || player.role === 'drone' || avatar.deadFor < DEATH_LINGER;
 
       if (avatar.character) {
         // Speed comes from how far the avatar actually moved on screen, not
@@ -193,6 +199,7 @@ export class RemoteAvatars {
       character,
       previous: new THREE.Vector3(),
       speed: 0,
+      deadFor: 0,
     };
   }
 
@@ -203,6 +210,13 @@ export class RemoteAvatars {
   setCharacterTemplate(scene: THREE.Object3D | null, animations: THREE.AnimationClip[]): void {
     this.template = scene;
     this.animations = animations;
+  }
+
+  /** Round-end body language for everyone else's runners. */
+  emote(won: boolean): void {
+    for (const avatar of this.avatars.values()) {
+      avatar.character?.playOnce(won ? 'emote-yes' : 'emote-no', EMOTE_TIME);
+    }
   }
 
   /** Server-owned cores. Local core visuals are disabled while connected. */
@@ -312,6 +326,10 @@ export class RemoteAvatars {
 
 /** Below this on-screen speed, keep the last travel direction. */
 const REMOTE_FACING_EPSILON = 0.2;
+/** Seconds a round-end emote owns a remote rig. */
+const EMOTE_TIME = 1.4;
+/** Seconds a downed remote body stays visible. Matches the local runner. */
+const DEATH_LINGER = 1.6;
 
 function shortestAngle(from: number, to: number): number {
   let delta = (to - from) % (Math.PI * 2);

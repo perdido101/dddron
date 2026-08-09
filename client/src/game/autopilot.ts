@@ -3,9 +3,12 @@ import * as THREE from 'three';
 import {
   AI_ATTACK_ALTITUDE,
   AI_CHASE_RADIUS,
+  AI_CHASE_TIME,
   AI_PATROL_ALTITUDE,
+  AI_REST_TIME,
   AI_WAYPOINTS,
   AI_WAYPOINT_RADIUS,
+  FIXED_TIMESTEP,
 } from '@shared/constants';
 
 import type { DroneInput } from './drone';
@@ -38,13 +41,31 @@ export class Autopilot {
   yaw = 0;
 
   private waypoint = 0;
+  /** Seconds spent on the current harassment run. */
+  private chaseFor = 0;
+  /** While positive, runners are ignored and the patrol loop resumes. */
+  private restFor = 0;
 
   /**
    * @param position where the drone currently is.
    * @returns the input to fly this step.
    */
-  update(position: THREE.Vector3, runners: readonly AutopilotTarget[]): DroneInput {
-    const quarry = this.nearestRunner(position, runners);
+  update(position: THREE.Vector3, runners: readonly AutopilotTarget[], dt = FIXED_TIMESTEP): DroneInput {
+    // The pester budget: chase in waves, not forever. A drone that parks over
+    // the objective is unbeatable by bots (they use no hazards) and merely
+    // tedious for humans; one that strafes in, harasses for a few seconds and
+    // peels off creates the rhythm the game is actually about.
+    if (this.restFor > 0) this.restFor -= dt;
+    const quarry = this.restFor > 0 ? null : this.nearestRunner(position, runners);
+    if (quarry) {
+      this.chaseFor += dt;
+      if (this.chaseFor >= AI_CHASE_TIME) {
+        this.chaseFor = 0;
+        this.restFor = AI_REST_TIME;
+      }
+    } else {
+      this.chaseFor = 0;
+    }
     const target = quarry ?? this.currentWaypoint(position);
     const targetAltitude = quarry ? AI_ATTACK_ALTITUDE : AI_PATROL_ALTITUDE;
 

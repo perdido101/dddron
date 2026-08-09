@@ -77,7 +77,12 @@ export class Runner {
    * so it does not have to know which is which.
    */
   interacting = false;
+  /** Holding a throwable prop: hands read as full, like carrying a core. */
+  handsFull = false;
 
+  private swatLeft = false;
+  /** Seconds the fallen body remains visible after an elimination. */
+  private deathLinger = 0;
   private readonly body: RAPIER.RigidBody;
   private readonly collider: RAPIER.Collider;
   private readonly controller: RAPIER.KinematicCharacterController;
@@ -242,7 +247,21 @@ export class Runner {
 
   /** Play the melee swing. Cosmetic only — the swat's reach is Hazards' call. */
   playSwat(): void {
-    this.character?.playOnce('attack-melee-right', SWAT_ANIM_TIME);
+    // Alternate arms: the second swing of a flurry looking identical to the
+    // first is the kind of detail that makes spam feel like animation reuse.
+    this.character?.playOnce(this.swatLeft ? 'attack-melee-left' : 'attack-melee-right', SWAT_ANIM_TIME);
+    this.swatLeft = !this.swatLeft;
+  }
+
+  /** Hurl whatever both hands were holding. Cosmetic, like the swat. */
+  playThrow(): void {
+    this.character?.playOnce('holding-both-shoot', THROW_ANIM_TIME);
+  }
+
+  /** A little celebration or defeat, e.g. on an insert or at round end. */
+  playEmote(win: boolean): void {
+    if (!this.alive) return;
+    this.character?.playOnce(win ? 'emote-yes' : 'emote-no', EMOTE_TIME);
   }
 
   /** True once per shove. Reading it clears the flag. */
@@ -265,7 +284,11 @@ export class Runner {
   /** Caught in a detonation. Never called by anything but the blast query. */
   eliminate(): void {
     this.alive = false;
-    this.object.visible = false;
+    // The body stays for a beat playing the death clip, THEN vanishes — with
+    // an instant hide the pack's die animation existed but no player had ever
+    // seen it, and a teammate winking out of existence reads as a bug, not a
+    // knockout.
+    this.deathLinger = DEATH_LINGER;
     this.velocity.set(0, 0, 0);
     this.push.set(0, 0, 0);
   }
@@ -277,7 +300,9 @@ export class Runner {
 
   respawn(): void {
     this.alive = true;
+    this.deathLinger = 0;
     this.object.visible = true;
+    this.character?.reset();
     this.carrying = false;
     this.moveTo(RUNNER_SPAWN[0], RUNNER_SPAWN[1], RUNNER_SPAWN[2]);
   }
@@ -409,12 +434,19 @@ export class Runner {
   render(alpha: number, frameDelta: number, interacting = false, lookYaw = 0): void {
     this.transform.readPosition(this.object.position, alpha);
 
+    // The lingering corpse: visible while the death clip plays, then gone.
+    if (!this.alive && this.deathLinger > 0) {
+      this.deathLinger -= frameDelta;
+      if (this.deathLinger <= 0) this.object.visible = false;
+    }
+
     const speed = Math.hypot(this.realised.x, this.realised.z);
 
     this.character?.update(frameDelta, {
       speed,
       grounded: this.grounded,
-      carrying: this.carrying,
+      // A throwable in hand reads the same as a core: both hands are full.
+      carrying: this.carrying || this.handsFull,
       alive: this.alive,
       interacting,
     });
@@ -487,6 +519,12 @@ export class Runner {
 
 /** Far below the arena floor, where a parked body touches nothing. */
 const PARKED: readonly [number, number, number] = [0, -400, 0];
+/** Seconds a knocked-out body stays on the ground before disappearing. */
+const DEATH_LINGER = 1.6;
+/** Seconds the throw one-shot owns the rig. */
+const THROW_ANIM_TIME = 0.5;
+/** Seconds an emote one-shot owns the rig. */
+const EMOTE_TIME = 1.4;
 
 function fmt(v: THREE.Vector3): string {
   return `${v.x.toFixed(4)}, ${v.y.toFixed(4)}, ${v.z.toFixed(4)}`;
