@@ -33,8 +33,13 @@ jobs:
 
       - run: npm ci
 
+      # Sacred-constraint guard (handoff 02, session 2): the build fails if
+      # the drone's linear damping ever exceeds the brief's hard cap of 0.8.
+      - run: node scripts/check-constraints.mjs
+
       # The brief's acceptance criteria include zero errors under strict mode,
       # so a type error fails the deploy rather than shipping past it.
+      # Typecheck covers all three workspaces, server included.
       - run: npm run typecheck
 
       - run: npm run build

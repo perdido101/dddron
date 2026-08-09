@@ -99,7 +99,21 @@ async function boot(): Promise<void> {
   // the whole single-player build behaves exactly as before.
   const net = new Connection();
   const avatars = new RemoteAvatars(view.scene);
-  net.onDetonation = (message) => confetti.burst(message);
+  net.onDetonation = (message) => {
+    // Server-declared detonation: same presentation as the local path, but the
+    // kill list is the server's — this client decides nothing.
+    confetti.burst(message);
+    sfx.detonation();
+    juice.detonation(
+      runner.position.distanceTo(new THREE.Vector3(message.x, message.y, message.z)),
+      DETONATION_RADIUS,
+    );
+    gremlin.onDetonation();
+    if (message.victims.includes(net.sessionId)) {
+      runner.eliminate();
+      if (!gremlin.active) gremlin.enter(runner.position);
+    }
+  };
 
   const endpoint = resolveEndpoint();
   let soloMode = endpoint === '';
@@ -162,6 +176,24 @@ async function boot(): Promise<void> {
   let gremlinLift = 0;
   let lastInserted = 0;
   let lastCarrying = false;
+  const testScript: { n: number; x: number; y: number; lift: number }[] = [];
+  const testInput = { move: new THREE.Vector2(), lift: 0 };
+  const testEndPos = new THREE.Vector3();
+
+  // Dev-only measurement hooks. Vite strips this whole block from production
+  // builds, so nothing here can leak into a real match.
+  if (import.meta.env.DEV) {
+    (window as unknown as { __test?: object }).__test = {
+      resetDrone: () => drone.resetForTest(),
+      dronePos: () => ({ x: drone.position.x, y: drone.position.y, z: drone.position.z }),
+      fly: (steps: { n: number; x: number; y: number; lift: number }[]) => {
+        testScript.length = 0;
+        for (const step of steps) testScript.push({ ...step });
+      },
+      scriptDone: () => testScript.length === 0,
+      endPos: () => ({ x: testEndPos.x, y: testEndPos.y, z: testEndPos.z }),
+    };
+  }
   let roundClock = 0;
   let empFlash = 0;
   const runners = [runner];
@@ -186,9 +218,32 @@ async function boot(): Promise<void> {
     // flown by the phase 4 script, so the objective always has pressure on it.
     runner.fixedUpdate(dt, moveInput, camera.heading);
 
-    const flown = pilot === 'drone' ? droneInput : autopilot.update(drone.position, runners);
-    if (pilot !== 'drone' && fuse.piloted) drone.steerTowards(autopilot.yaw, dt);
+    let flown = pilot === 'drone' ? droneInput : autopilot.update(drone.position, runners);
+    if (testScript.length > 0) {
+      // Deterministic scripted input (dev-only hook): consumed in fixed steps,
+      // so frame rate cannot smear the sequence. Used for FPV parity proof.
+      const step = testScript[0]!;
+      testInput.move.set(step.x, step.y);
+      testInput.lift = step.lift;
+      flown = testInput;
+      step.n -= 1;
+      if (step.n <= 0) {
+        testScript.shift();
+        // Capture at the exact step the script empties: sampling later on the
+        // wall clock reads a still-coasting drone at whatever sim time the
+        // poll happens to land on, which is frame-rate noise, not physics.
+        if (testScript.length === 0) testEndPos.copy(drone.position);
+      }
+    } else if (pilot !== 'drone' && fuse.piloted) {
+      drone.steerTowards(autopilot.yaw, dt);
+    }
     drone.fixedUpdate(dt, flown, washTargets, fuse);
+
+    // SACRED CONSTRAINT 3: when a server is connected, battery lives there and
+    // only there. The local fuse (and its blast) runs solely offline — without
+    // this gate the client computes a parallel detonation while online, which
+    // is exactly what the constraint forbids.
+    if (net.connected) return;
 
     // The battery is the only thing that can trigger a detonation — sacred
     // constraint 2 — so the blast is a consequence of this step, not an action.

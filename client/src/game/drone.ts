@@ -545,6 +545,26 @@ export class Drone {
     this.material.emissiveIntensity = flash;
   }
 
+  /**
+   * Deterministic reset: identical position, velocity, yaw and wander phase,
+   * so two runs of the same scripted input sequence are comparable. Add-on 01
+   * requires flight parity to be verified by measurement, and measurement is
+   * meaningless without identical initial conditions.
+   */
+  resetForTest(): void {
+    const [x, y, z] = DRONE_SPAWN;
+    this.body.setTranslation({ x, y, z }, true);
+    this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+    this.body.resetForces(true);
+    this.yaw = 0;
+    this.previousYaw = 0;
+    this.tiltPitch = 0;
+    this.tiltRoll = 0;
+    this.wanderClock = 0;
+    this.position.set(x, y, z);
+    this.transform.teleport(this.position);
+  }
+
   /** Put the drone back at its launch point on a fresh cycle. */
   relaunch(): void {
     const [x, y, z] = DRONE_SPAWN;
