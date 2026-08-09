@@ -4,7 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BUZZKILL</title>
-    <link rel="icon" href="data:," />
+    <!--
+      Favicon: the drone, top-down — four rotors round a body, on the sky
+      colour. An inline SVG data URI so it costs no request and no file, and
+      so it stays legible at 16 px where a photo of anything would not.
+    -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23bfe4f2'/%3E%3Cg fill='%23566' opacity='.85'%3E%3Ccircle cx='9' cy='9' r='4.6'/%3E%3Ccircle cx='23' cy='9' r='4.6'/%3E%3Ccircle cx='9' cy='23' r='4.6'/%3E%3Ccircle cx='23' cy='23' r='4.6'/%3E%3C/g%3E%3Cg fill='%23bfe4f2'%3E%3Ccircle cx='9' cy='9' r='2.7'/%3E%3Ccircle cx='23' cy='9' r='2.7'/%3E%3Ccircle cx='9' cy='23' r='2.7'/%3E%3Ccircle cx='23' cy='23' r='2.7'/%3E%3C/g%3E%3Crect x='11' y='11' width='10' height='10' rx='3' fill='%23ff8b6b'/%3E%3Crect x='12.5' y='14.5' width='7' height='3' rx='1.5' fill='%237fd4a8'/%3E%3C/svg%3E"
+    />
     <style>
       /*
         Fredoka (SIL Open Font License 1.1), the manifest's P0 "heavy rounded
@@ -271,6 +279,24 @@
         margin: 0 0 2px;
         font-size: 34px;
         letter-spacing: 0.12em;
+      }
+      /*
+        Wordmark (manifest, P1: "chunky inflated 3D lettering, pastel").
+        Stacked text-shadows extrude the type down-right and a lighter pair
+        lifts the top edge, which is the whole 3D effect — no image, and it
+        restyles with the font rather than going stale next to it.
+      */
+      .lobby-card[data-view='landing'] h1 {
+        font-size: 46px;
+        font-weight: 700;
+        color: #ff8b6b;
+        text-shadow:
+          0 1px 0 #ffb59e,
+          0 2px 0 #f77a58,
+          0 3px 0 #e56a49,
+          0 4px 0 #d45c3d,
+          0 5px 0 #c34f32,
+          0 6px 10px rgba(40, 20, 15, 0.35);
       }
       .lobby-sub {
         margin: 0 0 16px;
