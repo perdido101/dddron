@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 import {
+  ARENA_CEILING,
   ARENA_SIZE,
   CAMERA_DISTANCE,
   CAMERA_FOV,
@@ -24,6 +25,7 @@ import {
   FOOT_OFFSET,
   FPV_STORAGE_KEY,
   FPV_TOGGLE_HOLD_MS,
+  RUNNER_SPAWN,
 } from '@shared/constants';
 
 import { PropWhine, Sfx } from './engine/audio';
@@ -47,6 +49,7 @@ import { Runner } from './game/runner';
 import { TestCube } from './game/testCube';
 import { Connection, resolveEndpoint, type NetSnapshot } from './net/connection';
 import { RemoteAvatars } from './net/remoteAvatars';
+import { DevConsole } from './ui/devConsole';
 import { FpvOverlay } from './ui/fpvOverlay';
 import { Hud } from './ui/hud';
 import { Lobby } from './ui/lobby';
@@ -68,6 +71,7 @@ const KEY_FPV = 'KeyV';
 const KEY_SWAT = 'KeyF';
 const KEY_THROW = 'KeyQ';
 const KEY_GREMLIN = 'KeyG';
+const KEY_DEV = 'Backslash';
 /** Pickup clicks high, the insert clunk lands low. */
 const CLICK_PITCH_PICKUP = 1.4;
 const CLICK_PITCH_INSERT = 0.7;
@@ -106,6 +110,14 @@ function reachableAction(
   );
   return near ? 'pickup' : null;
 }
+
+/** Dev-console teleport targets: the places a playtest keeps walking back to. */
+const TELEPORTS: Record<string, readonly [number, number, number]> = {
+  spawn: RUNNER_SPAWN,
+  station: [EMP_STATION_POSITION[0], RUNNER_SPAWN[1], EMP_STATION_POSITION[1]],
+  pad: [CHARGE_PAD_POSITIONS[0]![0], RUNNER_SPAWN[1], CHARGE_PAD_POSITIONS[0]![1]],
+  ceiling: [0, ARENA_CEILING - 1, 0],
+};
 
 const HINTS: Record<Pilot, string> = {
   runner: 'RUNNER — WASD move · SPACE jump · C fly the drone · O free cam · ~ debug',
@@ -193,6 +205,29 @@ async function boot(): Promise<void> {
   // With no server configured there is nothing to join, so go straight in.
   if (soloMode) lobby.hide();
   else lobby.setStatus(`server: ${endpoint}`);
+
+  // Test tooling, and only ever tooling: a production build sets neither of
+  // these, so the console is not constructed and its module drops out.
+  const devEnabled = import.meta.env.DEV || import.meta.env.VITE_DEV_CONSOLE === '1';
+  const devConsole = devEnabled
+    ? new DevConsole({
+        send: (action, value) => net.sendDev(action, value),
+        teleport: (where) => {
+          const spot = TELEPORTS[where] ?? RUNNER_SPAWN;
+          runner.moveTo(spot[0], spot[1], spot[2]);
+        },
+        toggleHazards: () => {
+          hazards.setEnabled(!hazards.isEnabled);
+          return hazards.isEnabled;
+        },
+        localBattery: (charge) => { fuse.charge = charge; },
+        localCycle: (cycle) => {
+          fuse.cycle = cycle;
+          fuse.charge = 1;
+          fuse.state = 'armed';
+        },
+      })
+    : null;
 
   const sizeFpv = (): void => fpv.resize(window.innerWidth, window.innerHeight);
   sizeFpv();
@@ -384,6 +419,10 @@ async function boot(): Promise<void> {
     const frameDelta = juice.consumeHitstop(realDelta);
 
     if (input.consumePress(KEY_DEBUG)) overlay.toggle();
+    if (devConsole && input.consumePress(KEY_DEV)) {
+      devConsole.toggle();
+      if (devConsole.visible) document.exitPointerLock();
+    }
     // Offline you can swap bodies freely, which is how the single-player build
     // lets one person feel both sides. Online the server assigns the role.
     if (input.consumePress(KEY_SWAP) && !net.connected) {
@@ -554,6 +593,7 @@ async function boot(): Promise<void> {
     } else if (net.error) {
       avatars.clear();
     }
+    devConsole?.setContext(snapshot !== null, snapshot?.devEnabled ?? false);
 
     runner.render(physics.alpha, frameDelta);
     drone.render(physics.alpha, frameDelta, fuse.telegraphProgress, fuse.charge);
@@ -674,7 +714,8 @@ async function boot(): Promise<void> {
       `camera       boom ${camera.boomLength.toFixed(2)} / ${CAMERA_DISTANCE.toFixed(1)} m`,
       `draw calls   ${view.renderer.info.render.calls}   tris ${view.renderer.info.render.triangles}`,
       '',
-      'E interact · F swat · Q grab/throw · G gremlin · C swap · V FPV · R respawn · O free cam',
+      'E interact · F swat · Q grab/throw · G gremlin · C swap · V FPV · R respawn · O free cam'
+        + (devConsole ? ' · \\ dev console' : ''),
     ]);
     overlay.update(frameDelta, physics);
 

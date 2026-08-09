@@ -114,6 +114,12 @@ export class GameState extends Schema {
    */
   practice = false;
   botCount = 0;
+  /**
+   * Whether this server accepts dev-console commands. Broadcast so the client
+   * only offers the console when it would actually do something — a panel of
+   * buttons that silently no-op is worse than no panel.
+   */
+  devEnabled = false;
 }
 defineTypes(GameState, {
   players: { map: PlayerState },
@@ -136,4 +142,5 @@ defineTypes(GameState, {
   droneKnocked: 'boolean',
   practice: 'boolean',
   botCount: 'uint8',
+  devEnabled: 'boolean',
 });

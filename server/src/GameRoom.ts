@@ -198,6 +198,11 @@ export class GameRoom extends Room<GameState> {
       this.broadcast('knockdown', { by: client.sessionId });
     });
 
+    // Dev console. Registered only when the operator opted in, so a public
+    // server has no handler at all rather than a handler with a check in it.
+    this.state.devEnabled = DEV_TOOLS;
+    if (DEV_TOOLS) this.registerDevCommands();
+
     this.setSimulationInterval((deltaMs) => this.tick(deltaMs / 1000), 1000 / SERVER_BROADCAST_HZ);
   }
 
@@ -246,6 +251,84 @@ export class GameRoom extends Room<GameState> {
       this.state.players.delete(client.sessionId);
       this.rehost();
     }
+  }
+
+  /**
+   * Test tooling (handoff 02, session 4).
+   *
+   * Everything here manipulates state the server owns, because a client-side
+   * cheat panel would prove nothing about the server's behaviour — the point
+   * of forcing a detonation is to watch the real detonation path run.
+   */
+  private registerDevCommands(): void {
+    this.onMessage('dev', (client, payload: { action?: string; value?: number | string }) => {
+      const action = payload?.action;
+      const value = payload?.value;
+      switch (action) {
+        case 'battery':
+          this.fuse.charge = clamp01(Number(value));
+          this.state.battery = this.fuse.charge;
+          break;
+
+        case 'detonate':
+          // SACRED CONSTRAINT 2: there is no manual trigger, not even here.
+          // This empties the battery and lets the ordinary step detonate, so
+          // the path under test is the real one rather than a shortcut.
+          this.fuse.charge = 0;
+          this.state.battery = 0;
+          break;
+
+        case 'cycle': {
+          const cycle = Math.max(0, Math.min(Math.floor(Number(value)) || 0, DEV_MAX_CYCLE));
+          this.fuse.cycle = cycle;
+          this.fuse.charge = 1;
+          this.fuse.state = 'armed';
+          this.state.cycle = cycle;
+          break;
+        }
+
+        case 'cores':
+          // Put every core back on its pad, so the contest rule can be
+          // re-tested without replaying the walk that emptied the pads.
+          this.state.cores.forEach((core, index) => {
+            const pad = CHARGE_PAD_POSITIONS[index % CHARGE_PAD_POSITIONS.length]!;
+            core.state = 'onPad';
+            core.carrier = '';
+            core.pad = index % CHARGE_PAD_POSITIONS.length;
+            core.x = pad[0];
+            core.y = CORE_RADIUS;
+            core.z = pad[1];
+          });
+          this.state.players.forEach((player) => { player.carrying = false; });
+          this.holds.clear();
+          this.state.coresInserted = 0;
+          this.state.empCharge = 0;
+          break;
+
+        case 'insertAll':
+          this.state.cores.forEach((core) => {
+            core.state = 'inserted';
+            core.carrier = '';
+            core.pad = -1;
+          });
+          this.state.players.forEach((player) => { player.carrying = false; });
+          this.state.coresInserted = this.insertedCount();
+          break;
+
+        case 'win':
+          if (this.state.phase !== 'playing') break;
+          this.endRound(value === 'drone' ? 'drone' : 'runners', 'dev console');
+          break;
+
+        case 'revive':
+          this.state.players.forEach((player) => { player.alive = true; });
+          break;
+
+        default:
+          break;
+      }
+      console.log(`[room ${this.roomId}] dev ${action ?? '?'} ${String(value ?? '')} by ${client.sessionId}`);
+    });
   }
 
   private setRole(sessionId: string | undefined, role: string | undefined): void {
@@ -730,6 +813,18 @@ const NICKNAME_MAX = 16;
 const BOT_NAMES = ['Pip', 'Bod', 'Nix', 'Tam', 'Gus', 'Wex', 'Ozz'];
 /** Slack on the server-side swat range check, to forgive 20 Hz position lag. */
 const SWAT_RANGE_TOLERANCE = 1.6;
+/**
+ * Dev console, off unless the operator sets BUZZKILL_DEV=1. The deployed
+ * playtest server runs without it, so a curious player poking at the socket
+ * finds no handler to call.
+ */
+const DEV_TOOLS = process.env.BUZZKILL_DEV === '1';
+/** Cycle is a uint8 in the schema and the fuse shortens each time. */
+const DEV_MAX_CYCLE = 20;
+
+function clamp01(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+}
 
 function padUnder(x: number, z: number): number {
   for (let i = 0; i < CHARGE_PAD_POSITIONS.length; i += 1) {

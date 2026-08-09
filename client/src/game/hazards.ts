@@ -69,6 +69,7 @@ export class Hazards {
   private sabotageTimer = 0;
   private readonly disabledPads = new Map<number, number>();
   private prompt: string | null = null;
+  private enabled = true;
 
   private readonly swatArc: THREE.Mesh;
   private swatFlash = 0;
@@ -144,8 +145,32 @@ export class Hazards {
     }
   }
 
+  /**
+   * Turn every hazard off at once.
+   *
+   * A playtest question the brief cares about is whether the drone is only
+   * survivable *because* of the hazards. Switching them off mid-round answers
+   * it directly instead of by argument.
+   */
+  setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
+    if (!enabled) {
+      this.netSlowTimer = 0;
+      this.disabledPads.clear();
+    }
+  }
+
+  get isEnabled(): boolean {
+    return this.enabled;
+  }
+
   /** One fixed step. Call before the world steps. */
   fixedUpdate(dt: number, runner: Runner, drone: Drone, interact: boolean): void {
+    if (!this.enabled) {
+      // Leave the drone unencumbered rather than frozen at the last multiplier.
+      drone.speedMultiplier = 1;
+      return;
+    }
     this.swatTimer = Math.max(0, this.swatTimer - dt);
     this.netSlowTimer = Math.max(0, this.netSlowTimer - dt);
     for (const [pad, remaining] of this.disabledPads) {
@@ -201,6 +226,7 @@ export class Hazards {
 
   /** Melee arc on F. Hitting the drone knocks it down; it never kills it. */
   swat(runner: Runner, drone: Drone, yaw: number): boolean {
+    if (!this.enabled) return false;
     if (this.swatTimer > 0) return false;
     this.swingYaw = yaw;
     this.swatTimer = SWAT_COOLDOWN;

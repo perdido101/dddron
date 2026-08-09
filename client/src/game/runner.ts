@@ -196,10 +196,20 @@ export class Runner {
   }
 
   respawn(): void {
-    const [x, y, z] = RUNNER_SPAWN;
     this.alive = true;
     this.object.visible = true;
     this.carrying = false;
+    this.moveTo(RUNNER_SPAWN[0], RUNNER_SPAWN[1], RUNNER_SPAWN[2]);
+  }
+
+  /**
+   * Put the body somewhere without simulating the journey.
+   *
+   * Movement is client-authoritative (sacred constraint 5), so this is a
+   * legitimate local operation: the server relays wherever we say we are.
+   * Velocity is cleared so the runner does not arrive already sprinting.
+   */
+  moveTo(x: number, y: number, z: number): void {
     this.shoved = false;
     this.position.set(x, y, z);
     this.velocity.set(0, 0, 0);

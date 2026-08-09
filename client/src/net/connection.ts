@@ -44,6 +44,8 @@ export interface NetSnapshot {
   droneKnocked: boolean;
   practice: boolean;
   botCount: number;
+  /** Whether this server accepts dev-console commands at all. */
+  devEnabled: boolean;
 }
 
 export interface DetonationMessage {
@@ -177,6 +179,14 @@ export class Connection {
   }
 
   /**
+   * Dev-console command. Silently ignored unless the server was started with
+   * dev tools on, which `NetSnapshot.devEnabled` reports so the UI can say so.
+   */
+  sendDev(action: string, value?: number | string): void {
+    this.room?.send('dev', { action, value });
+  }
+
+  /**
    * Tell the server a hazard connected. The server range-checks it and owns
    * the consequence — the client never decides that the drone is down.
    */
@@ -297,6 +307,7 @@ export class Connection {
       droneKnocked: state.droneKnocked as boolean,
       practice: state.practice as boolean,
       botCount: state.botCount as number,
+      devEnabled: state.devEnabled === true,
     };
   }
 
