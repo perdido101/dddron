@@ -255,6 +255,12 @@ export class RemoteAvatars {
       .map((mesh) => [mesh.position.x, mesh.position.y, mesh.position.z]);
     const avatarColors: string[] = [];
     for (const avatar of this.avatars.values()) {
+      // Character avatars carry the tint on the model; primitive ones carry it
+      // on their first mesh. Both are runners, and both need reporting.
+      if (avatar.character) {
+        avatarColors.push(avatar.character.colorwayHex);
+        continue;
+      }
       const body = avatar.group.children[0] as THREE.Mesh | undefined;
       const material = body?.material as THREE.MeshLambertMaterial | undefined;
       if (material?.color) avatarColors.push(`#${material.color.getHexString()}`);

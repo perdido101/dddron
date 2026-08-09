@@ -101,6 +101,11 @@ export class Character {
     this.object.visible = visible;
   }
 
+  /** Current tint as `#rrggbb`. Test hook, for verifying colourways. */
+  get colorwayHex(): string {
+    return `#${this.tint.getHexString()}`;
+  }
+
   /** Pick and advance the clip. Cosmetic, so it runs on the render delta. */
   update(frameDelta: number, state: CharacterState): void {
     const mixer = this.mixer;
