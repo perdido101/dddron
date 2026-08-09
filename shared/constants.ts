@@ -604,6 +604,12 @@ export const ROUND_TIME = 180;
 /** Match length is max(5, playerCount). */
 export const ROUNDS_PER_MATCH_MIN = 5;
 export const MIN_PLAYERS = 3;
+/**
+ * Practice mode only. The 3-player rule is correct for real matches and wrong
+ * for testing, so this is a separate minimum rather than a lowered one --
+ * real matches still enforce MIN_PLAYERS (handoff 02, session 4).
+ */
+export const PRACTICE_MIN_PLAYERS = 1;
 export const MAX_PLAYERS = 8;
 /** unspecified. Round-end screen auto-advance (phase 9 task list says 10 s). */
 export const ROUND_END_AUTO_ADVANCE = 10;

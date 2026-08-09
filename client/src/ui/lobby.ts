@@ -1,4 +1,4 @@
-import { MIN_PLAYERS, ROOM_CODE_LENGTH } from '@shared/constants';
+import { MAX_PLAYERS, MIN_PLAYERS, PRACTICE_MIN_PLAYERS, ROOM_CODE_LENGTH } from '@shared/constants';
 
 import type { NetSnapshot } from '../net/connection';
 
@@ -8,6 +8,9 @@ export interface LobbyCallbacks {
   onReady: (ready: boolean) => void;
   onStart: () => void;
   onSolo: () => void;
+  onPractice: (on: boolean) => void;
+  onRole: (role: 'drone' | 'runner') => void;
+  onBots: (count: number) => void;
 }
 
 /**
@@ -30,7 +33,17 @@ export class Lobby {
   private readonly startButton: HTMLButtonElement;
   private readonly readyButton: HTMLButtonElement;
   private readonly status: HTMLElement;
+  private readonly hint: HTMLElement;
+  private readonly setup: HTMLElement;
+  private readonly practiceRow: HTMLElement;
+  private readonly practiceButton: HTMLButtonElement;
+  private readonly botRow: HTMLElement;
+  private readonly botCount: HTMLElement;
+  private readonly roleDrone: HTMLButtonElement;
+  private readonly roleRunner: HTMLButtonElement;
   private ready = false;
+  /** Last bot count we saw from the server, so ± can step from it. */
+  private bots = 0;
 
   constructor(private readonly callbacks: LobbyCallbacks, parent: HTMLElement = document.body) {
     this.root = document.createElement('div');
@@ -38,7 +51,7 @@ export class Lobby {
     this.root.innerHTML = `
       <div class="lobby-card" data-view="landing">
         <h1>BUZZKILL</h1>
-        <p class="lobby-sub">friends-only lobbies · 3-8 players</p>
+        <p class="lobby-sub">friends-only lobbies · ${MIN_PLAYERS}-${MAX_PLAYERS} players, or 1 + bots</p>
         <input class="lobby-nick" maxlength="16" placeholder="your name" />
         <button class="lobby-create">CREATE ROOM</button>
         <div class="lobby-join">
@@ -53,9 +66,26 @@ export class Lobby {
         <p class="lobby-sub">ROOM CODE</p>
         <h1 class="lobby-codelabel">----</h1>
         <ul class="lobby-players"></ul>
+        <div class="lobby-setup">
+          <div class="lobby-row lobby-practicerow">
+            <span>practice (1 player + bots)</span>
+            <button class="lobby-practice" data-on="0">OFF</button>
+          </div>
+          <div class="lobby-row">
+            <span>i want to</span>
+            <button class="lobby-role-drone">FLY</button>
+            <button class="lobby-role-runner">RUN</button>
+          </div>
+          <div class="lobby-row lobby-botrow">
+            <span>bots</span>
+            <button class="lobby-bots-down">−</button>
+            <span class="lobby-botcount">0</span>
+            <button class="lobby-bots-up">+</button>
+          </div>
+        </div>
         <button class="lobby-ready">READY</button>
         <button class="lobby-start" disabled>START MATCH</button>
-        <p class="lobby-hint">the host starts · ${MIN_PLAYERS} players minimum</p>
+        <p class="lobby-hint"></p>
       </div>
 
       <div class="lobby-card" data-view="results" hidden>
@@ -77,6 +107,28 @@ export class Lobby {
     this.startButton = this.pick('.lobby-start');
     this.readyButton = this.pick('.lobby-ready');
     this.status = this.pick('.lobby-status');
+    this.hint = this.pick('.lobby-hint');
+    this.setup = this.pick('.lobby-setup');
+    this.practiceRow = this.pick('.lobby-practicerow');
+    this.practiceButton = this.pick('.lobby-practice');
+    this.botRow = this.pick('.lobby-botrow');
+    this.botCount = this.pick('.lobby-botcount');
+    this.roleDrone = this.pick('.lobby-role-drone');
+    this.roleRunner = this.pick('.lobby-role-runner');
+
+    // Every control below only *asks*: the server decides and the next
+    // snapshot paints the answer, so a rejected request simply does nothing.
+    this.practiceButton.onclick = () => {
+      this.callbacks.onPractice(this.practiceButton.dataset.on !== '1');
+    };
+    this.roleDrone.onclick = () => this.callbacks.onRole('drone');
+    this.roleRunner.onclick = () => this.callbacks.onRole('runner');
+    this.pick<HTMLButtonElement>('.lobby-bots-down').onclick = () => {
+      this.callbacks.onBots(Math.max(0, this.bots - 1));
+    };
+    this.pick<HTMLButtonElement>('.lobby-bots-up').onclick = () => {
+      this.callbacks.onBots(Math.min(MAX_PLAYERS - 1, this.bots + 1));
+    };
 
     this.pick<HTMLButtonElement>('.lobby-create').onclick = () => {
       this.status.textContent = 'creating room…';
@@ -152,9 +204,7 @@ export class Lobby {
       this.room.hidden = false;
       this.results.hidden = true;
       this.renderPlayers(snapshot, selfId);
-      const isHost = snapshot.host === selfId;
-      this.startButton.hidden = !isHost;
-      this.startButton.disabled = snapshot.players.length < MIN_PLAYERS;
+      this.renderSetup(snapshot, selfId);
       return;
     }
 
@@ -174,6 +224,44 @@ export class Lobby {
       row.textContent = `${player.nickname}${you}${host} — ${player.role}${player.ready ? ' ✓' : ''}`;
       this.playerList.appendChild(row);
     }
+  }
+
+  /**
+   * Practice toggle, role picker and bot count.
+   *
+   * Practice and bots are host-only because they change the shape of the round
+   * for everyone; the role picker is not, because picking what you play is
+   * every player's own business. The start button reads the practice minimum
+   * so one person plus bots is a legal round, while a real match still needs
+   * the brief's three humans.
+   */
+  private renderSetup(snapshot: NetSnapshot, selfId: string): void {
+    const isHost = snapshot.host === selfId;
+    this.bots = snapshot.botCount;
+
+    this.practiceRow.hidden = !isHost;
+    this.botRow.hidden = !isHost;
+    this.setup.hidden = false;
+    this.practiceButton.dataset.on = snapshot.practice ? '1' : '0';
+    this.practiceButton.textContent = snapshot.practice ? 'ON' : 'OFF';
+    this.botCount.textContent = String(snapshot.botCount);
+
+    const me = snapshot.players.find((player) => player.sessionId === selfId);
+    this.roleDrone.dataset.on = me?.role === 'drone' ? '1' : '0';
+    this.roleRunner.dataset.on = me?.role === 'runner' ? '1' : '0';
+
+    const humans = snapshot.players.filter((player) => !player.bot).length;
+    const minimum = snapshot.practice ? PRACTICE_MIN_PLAYERS : MIN_PLAYERS;
+    this.startButton.hidden = !isHost;
+    this.startButton.disabled = humans < minimum;
+    this.hint.textContent = isHost
+      ? humans < minimum
+        ? `${minimum - humans} more player${minimum - humans === 1 ? '' : 's'} needed` +
+          `${snapshot.practice ? '' : ' — or switch on practice'}`
+        : snapshot.practice
+          ? 'practice round · not scored'
+          : `round ${snapshot.round + 1} of the match`
+      : 'waiting for the host to start';
   }
 
   private renderResults(snapshot: NetSnapshot): void {

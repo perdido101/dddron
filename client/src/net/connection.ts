@@ -18,12 +18,14 @@ export interface RemotePlayer {
   survived: number;
   coresDropped: number;
   fanLaunches: number;
+  /** Filler player simulated by the host client, not a person. */
+  bot: boolean;
 }
 
 /** Everything the client renders but does not own. */
 export interface NetSnapshot {
   players: RemotePlayer[];
-  cores: { x: number; y: number; z: number; state: string; carrier: string }[];
+  cores: { x: number; y: number; z: number; state: string; carrier: string; pad: number }[];
   battery: number;
   cycle: number;
   fuseState: string;
@@ -40,6 +42,8 @@ export interface NetSnapshot {
   round: number;
   totalRounds: number;
   droneKnocked: boolean;
+  practice: boolean;
+  botCount: number;
 }
 
 export interface DetonationMessage {
@@ -143,6 +147,35 @@ export class Connection {
     this.room?.send('ready', ready);
   }
 
+  /** Host-only. The server ignores it from anyone else. */
+  setPractice(on: boolean): void {
+    this.room?.send('practice', on);
+  }
+
+  /** Ask for a role. The server keeps exactly one drone, so this may bump someone. */
+  setRole(role: 'drone' | 'runner'): void {
+    this.room?.send('role', role);
+  }
+
+  /** Host-only: how many filler bots the room should hold. */
+  setBots(count: number): void {
+    this.room?.send('setBots', count);
+  }
+
+  /**
+   * Relay one host-simulated bot body. Bots exist so a round can be played
+   * below the 3-player minimum; their bodies are simulated on the host's
+   * client exactly like a human's, and only the resulting position is sent —
+   * the server still simulates no movement at all (sacred constraint 5).
+   */
+  sendBotMove(id: string, x: number, y: number, z: number, yaw: number): void {
+    this.room?.send('botMove', { id, x, y, z, yaw });
+  }
+
+  sendBotInteract(id: string, held: boolean): void {
+    this.room?.send('botInteract', { id, held });
+  }
+
   /**
    * Tell the server a hazard connected. The server range-checks it and owns
    * the consequence — the client never decides that the drone is down.
@@ -226,12 +259,21 @@ export class Connection {
         survived: player.survived,
         coresDropped: player.coresDropped,
         fanLaunches: player.fanLaunches,
+        bot: player.bot,
       });
     });
 
     const cores: NetSnapshot['cores'] = [];
     (state.cores as { forEach: (fn: (value: NetSnapshot['cores'][number]) => void) => void }).forEach(
-      (core) => cores.push({ x: core.x, y: core.y, z: core.z, state: core.state, carrier: core.carrier }),
+      (core) =>
+        cores.push({
+          x: core.x,
+          y: core.y,
+          z: core.z,
+          state: core.state,
+          carrier: core.carrier,
+          pad: core.pad,
+        }),
     );
 
     return {
@@ -253,6 +295,8 @@ export class Connection {
       round: state.round as number,
       totalRounds: state.totalRounds as number,
       droneKnocked: state.droneKnocked as boolean,
+      practice: state.practice as boolean,
+      botCount: state.botCount as number,
     };
   }
 

@@ -30,7 +30,16 @@ gameServer.define('buzzkill', GameRoom).filterBy(['code']);
  * writing to it is a harmless no-op rather than a crash.
  */
 httpServer.prependListener('request', (req, res) => {
-  if (req.url === '/health') {
+  // Anything Colyseus does not route has NO handler on a bare http server, so
+  // the request hangs until the host's gateway gives up and shows a 502. Only
+  // these exact paths are intercepted; /matchmake/* still falls through.
+  if (req.url === '/' || req.url === '/favicon.ico' || req.url === '/robots.txt') {
+    respond(res, 200, {
+      service: 'buzzkill',
+      note: 'game server — play at https://perdido101.github.io/dddron/',
+      rooms: telemetry.rooms,
+    });
+  } else if (req.url === '/health') {
     respond(res, 200, { ok: true, rooms: telemetry.rooms, uptime: Math.round(process.uptime()) });
   } else if (req.url === '/stats') {
     respond(res, 200, telemetry.stats());

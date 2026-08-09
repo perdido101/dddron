@@ -18,6 +18,7 @@ import {
   KNOCKDOWN_RECOVERY,
   MAX_PLAYERS,
   MIN_PLAYERS,
+  PRACTICE_MIN_PLAYERS,
   RECONNECT_WINDOW,
   ROUNDS_PER_MATCH_MIN,
   SCORE_DRONE_ELIM,
@@ -64,6 +65,7 @@ export class GameRoom extends Room<GameState> {
   private readonly holds = new Map<string, { kind: 'pickup' | 'insert'; core: number; timer: number }>();
   private readonly interacting = new Set<string>();
   private roundClock = 0;
+  private nextBotId = 1;
   private knockdownTimer = 0;
   private intermission = 0;
 
@@ -106,6 +108,50 @@ export class GameRoom extends Room<GameState> {
       else this.interacting.delete(client.sessionId);
     });
 
+    /** Practice mode is host-only. It drops the minimum to one player. */
+    this.onMessage('practice', (client, on: boolean) => {
+      if (client.sessionId !== this.state.host || this.state.phase !== 'lobby') return;
+      this.state.practice = on === true;
+    });
+
+    /** Each player picks their own role; the host may override anyone's. */
+    this.onMessage('role', (client, role: string) => {
+      if (this.state.phase !== 'lobby') return;
+      this.setRole(client.sessionId, role);
+    });
+    this.onMessage('assignRole', (client, payload: { sessionId: string; role: string }) => {
+      if (client.sessionId !== this.state.host || this.state.phase !== 'lobby') return;
+      this.setRole(payload?.sessionId, payload?.role);
+    });
+
+    /** Host sets how many bots fill the room. */
+    this.onMessage('setBots', (client, count: number) => {
+      if (client.sessionId !== this.state.host || this.state.phase !== 'lobby') return;
+      this.setBotCount(Math.max(0, Math.min(Math.floor(count) || 0, MAX_PLAYERS - 1)));
+    });
+
+    /**
+     * Bot bodies are simulated by the HOST's client and relayed here, so bots
+     * use exactly the same physics as a human and the server stays free of a
+     * movement simulation it is not supposed to own (sacred constraint 5).
+     */
+    this.onMessage('botMove', (client, payload: { id: string; x: number; y: number; z: number; yaw: number }) => {
+      if (client.sessionId !== this.state.host) return;
+      const bot = this.state.players.get(payload?.id ?? '');
+      if (!bot?.bot) return;
+      bot.x = payload.x;
+      bot.y = payload.y;
+      bot.z = payload.z;
+      bot.yaw = payload.yaw;
+    });
+    this.onMessage('botInteract', (client, payload: { id: string; held: boolean }) => {
+      if (client.sessionId !== this.state.host) return;
+      const bot = this.state.players.get(payload?.id ?? '');
+      if (!bot?.bot) return;
+      if (payload.held) this.interacting.add(bot.sessionId);
+      else this.interacting.delete(bot.sessionId);
+    });
+
     this.onMessage('ready', (client, ready: boolean) => {
       const player = this.state.players.get(client.sessionId);
       if (player) player.ready = ready === true;
@@ -115,7 +161,12 @@ export class GameRoom extends Room<GameState> {
     this.onMessage('start', (client) => {
       if (this.state.phase !== 'lobby' && this.state.phase !== 'intermission') return;
       if (client.sessionId !== this.state.host) return;
-      if (this.state.players.size < MIN_PLAYERS) return;
+      const humans = this.humanCount();
+      const minimum = this.state.practice ? PRACTICE_MIN_PLAYERS : MIN_PLAYERS;
+      if (humans < minimum) return;
+      // A round with no drone is not a round. Practice with a single human
+      // runner is the case this exists for, so a bot takes the seat.
+      this.ensureExactlyOneDrone();
       this.beginMatchIfNeeded();
       this.beginRound();
     });
@@ -197,12 +248,89 @@ export class GameRoom extends Room<GameState> {
     }
   }
 
+  private setRole(sessionId: string | undefined, role: string | undefined): void {
+    if (role !== 'drone' && role !== 'runner') return;
+    const player = this.state.players.get(sessionId ?? '');
+    if (!player) return;
+    // Exactly one drone: taking the seat vacates it for whoever had it.
+    if (role === 'drone') {
+      this.state.players.forEach((other) => {
+        if (other !== player && other.role === 'drone') other.role = 'runner';
+      });
+    }
+    player.role = role;
+  }
+
+  /**
+   * Nobody flying is not a valid round, so somebody has to be drafted.
+   *
+   * A bot is drafted first when one is available. Picking "runner" in the
+   * lobby is an explicit choice, and putting that player straight back into
+   * the pilot seat would make the role picker a lie — practising as a runner
+   * against a bot drone is exactly what bots are for. With no bots in the
+   * room there is nobody else to ask, so a human takes it.
+   */
+  private ensureExactlyOneDrone(): void {
+    let drones = 0;
+    this.state.players.forEach((player) => {
+      if (player.role === 'drone') drones += 1;
+    });
+    if (drones === 1) return;
+
+    let chosen: PlayerState | undefined;
+    this.state.players.forEach((player) => {
+      if (!chosen && player.bot) chosen = player;
+    });
+    if (!chosen) {
+      this.state.players.forEach((player) => {
+        if (!chosen) chosen = player;
+      });
+    }
+    if (!chosen) return;
+    this.state.players.forEach((player) => {
+      player.role = player === chosen ? 'drone' : 'runner';
+    });
+  }
+
+  private humanCount(): number {
+    let count = 0;
+    this.state.players.forEach((player) => {
+      if (!player.bot) count += 1;
+    });
+    return count;
+  }
+
+  /** Add or remove filler bots so the room holds exactly `count` of them. */
+  private setBotCount(count: number): void {
+    const existing: PlayerState[] = [];
+    this.state.players.forEach((player) => {
+      if (player.bot) existing.push(player);
+    });
+
+    for (let i = existing.length; i < count; i += 1) {
+      const bot = new PlayerState();
+      bot.sessionId = `bot:${this.nextBotId++}`;
+      bot.nickname = `[BOT] ${BOT_NAMES[i % BOT_NAMES.length]}`;
+      bot.role = 'runner';
+      bot.bot = true;
+      bot.ready = true;
+      this.placeAtSpawn(bot);
+      this.state.players.set(bot.sessionId, bot);
+    }
+    for (let i = count; i < existing.length; i += 1) {
+      const bot = existing[i];
+      if (bot) this.state.players.delete(bot.sessionId);
+    }
+    this.state.botCount = count;
+  }
+
   /** Host left: hand it to whoever is still here, so the room is not stuck. */
   private rehost(): void {
     if (this.state.players.has(this.state.host)) return;
     let next = '';
     this.state.players.forEach((player) => {
-      if (!next) next = player.sessionId;
+      // Never hand the room to a bot: bots are simulated BY the host.
+      if (!next && !player.bot) next = player.sessionId;
     });
     this.state.host = next;
   }
@@ -391,16 +519,24 @@ export class GameRoom extends Room<GameState> {
   }
 
   private beginRound(): void {
-    this.rotateDrone();
+    // Practice keeps whatever roles were picked; rotation is a match rule.
+    if (!this.state.practice) this.rotateDrone();
+    else this.ensureExactlyOneDrone();
     this.resetRound();
     this.state.round += 1;
     this.state.phase = 'playing';
   }
 
-  /** Fewest flights so far takes the drone; ties break on join order. */
+  /**
+   * Fewest flights so far takes the drone; ties break on join order.
+   *
+   * Bots are skipped: the rotation exists so every *person* flies once before
+   * anyone flies twice, and a bot in the queue would burn a turn nobody had.
+   */
   private rotateDrone(): void {
     let pick: PlayerState | undefined;
     this.state.players.forEach((player) => {
+      if (player.bot) return;
       if (!pick || player.flown < pick.flown) pick = player;
     });
     if (!pick) return;
@@ -449,7 +585,8 @@ export class GameRoom extends Room<GameState> {
   private endRound(winner: string, cause: string): void {
     this.state.winner = winner;
     this.state.cause = cause;
-    if (winner !== 'aborted') this.award(winner);
+    // Practice results never touch the match score (handoff 02, session 4).
+    if (winner !== 'aborted' && !this.state.practice) this.award(winner);
 
     const matchOver = this.state.round >= this.state.totalRounds && this.state.totalRounds > 0;
     this.state.phase = matchOver ? 'ended' : 'intermission';
@@ -590,6 +727,7 @@ const CORE_CARRY_OFFSET = 1.6;
 /** Below this altitude a detonated drone counts as having hit the floor. */
 const SETTLED_ALTITUDE = 1.0;
 const NICKNAME_MAX = 16;
+const BOT_NAMES = ['Pip', 'Bod', 'Nix', 'Tam', 'Gus', 'Wex', 'Ozz'];
 /** Slack on the server-side swat range check, to forgive 20 Hz position lag. */
 const SWAT_RANGE_TOLERANCE = 1.6;
 

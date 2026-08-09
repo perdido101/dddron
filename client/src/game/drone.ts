@@ -107,6 +107,7 @@ export class Drone {
   private readonly external = new THREE.Vector3();
   private rotorPhase = 0;
   private throttle = 0;
+  private active = true;
   private wanderClock = 0;
 
   private readonly force = new THREE.Vector3();
@@ -265,6 +266,35 @@ export class Drone {
   }
 
   /**
+   * Take the local drone out of the world entirely.
+   *
+   * Online exactly one client flies the drone and every other client sees it
+   * as a relayed avatar. Without this those clients keep simulating their own
+   * copy of it, which draws a second drone in the wrong place and shoves
+   * runners around with prop wash nobody caused. Disabling the rigid body
+   * removes it from the physics world rather than merely hiding it, so the
+   * phantom cannot collide with anything either.
+   *
+   * Simulating and being seen are separate. The host also flies the bot drone
+   * when nobody human took the seat: that body must simulate, but the host
+   * still draws it through the same relayed avatar everyone else sees, so
+   * there is one drone on screen rather than two a few frames apart.
+   *
+   * @param visible defaults to `active`; pass false to simulate unseen.
+   */
+  setActive(active: boolean, visible = active): void {
+    this.object.visible = visible;
+    if (this.active === active) return;
+    this.active = active;
+    this.body.setEnabled(active);
+    if (active) this.relaunch();
+  }
+
+  get isActive(): boolean {
+    return this.active;
+  }
+
+  /**
    * Hide the drone's own hull and rotors. The onboard camera sits between the
    * rotors, so from inside the feed they fill the frame and read as clutter --
    * you are looking OUT of the drone, not at it.
@@ -297,6 +327,9 @@ export class Drone {
     runners: readonly PropWashTarget[],
     fuse: Fuse,
   ): void {
+    // Stowed: somebody else is flying, and this copy is not in the world.
+    if (!this.active) return;
+
     // Rapier's addForce is PERSISTENT: it keeps applying every step until the
     // accumulator is cleared. Without this reset the hover force compounds each
     // tick and the drone leaves the arena at absurd speed.
@@ -485,12 +518,14 @@ export class Drone {
 
   /** Call after the world steps. */
   sample(): void {
+    if (!this.active) return;
     const t = this.body.translation();
     this.position.set(t.x, t.y, t.z);
     this.transform.push(this.position);
   }
 
   render(alpha: number, frameDelta: number, telegraph = 0, charge = 1): void {
+    if (!this.active) return;
     this.renderGauge(charge);
     this.transform.readPosition(this.object.position, alpha);
     this.renderTelegraph(frameDelta, this.dead ? 0 : telegraph);

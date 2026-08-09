@@ -122,6 +122,7 @@ export class Objective {
   private prompt: string | null = null;
   private present = 0;
   private needed = 1;
+  private coresVisible = true;
 
   private readonly station = new THREE.Vector3(EMP_STATION_POSITION[0], 0, EMP_STATION_POSITION[1]);
 
@@ -319,9 +320,24 @@ export class Objective {
   }
 
   render(frameDelta: number): void {
+    if (!this.coresVisible) {
+      for (const core of this.cores) core.mesh.visible = false;
+      return;
+    }
     for (const core of this.cores) {
       core.render(frameDelta, core === this.carried ? this.carriedBy : null);
     }
+  }
+
+  /**
+   * Hide the local cores.
+   *
+   * Online the server owns every core and the network layer draws them from
+   * its snapshot. Leaving these on renders each core twice, in two different
+   * places, and the wrong copy is the one that responds to your key presses.
+   */
+  setCoresVisible(visible: boolean): void {
+    this.coresVisible = visible;
   }
 
   status(): ObjectiveStatus {

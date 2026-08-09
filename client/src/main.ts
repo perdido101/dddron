@@ -7,7 +7,14 @@ import {
   CAMERA_FOV,
   CAMERA_TARGET_HEIGHT,
   CHARGE_PAD_POSITIONS,
+  CLIENT_SEND_HZ,
+  CORES_REQUIRED,
+  CORE_INSERT_HOLD,
+  CORE_PICKUP_HOLD,
+  CORE_PICKUP_RADIUS,
   DETONATION_RADIUS,
+  EMP_STATION_POSITION,
+  EMP_STATION_RADIUS,
   DRONE_CAMERA_DISTANCE,
   DRONE_CAMERA_HEIGHT,
   DRONE_CAMERA_LAG,
@@ -27,6 +34,7 @@ import { Physics } from './engine/physics';
 import { View } from './engine/view';
 import { Arena } from './game/arena';
 import { Autopilot } from './game/autopilot';
+import { Bots } from './game/bots';
 import { Confetti } from './game/confetti';
 import { Drone } from './game/drone';
 import { FollowCamera } from './game/followCamera';
@@ -37,7 +45,7 @@ import { Fuse, applyBlast } from '@shared/fuse';
 import { Objective } from './game/objective';
 import { Runner } from './game/runner';
 import { TestCube } from './game/testCube';
-import { Connection, resolveEndpoint } from './net/connection';
+import { Connection, resolveEndpoint, type NetSnapshot } from './net/connection';
 import { RemoteAvatars } from './net/remoteAvatars';
 import { FpvOverlay } from './ui/fpvOverlay';
 import { Hud } from './ui/hud';
@@ -66,6 +74,38 @@ const CLICK_PITCH_INSERT = 0.7;
 
 /** Which body the player is currently piloting. */
 type Pilot = 'runner' | 'drone';
+
+/**
+ * What the interact key would do right now, judged from server state.
+ *
+ * Online the server runs the objective, so it also owns whether a hold
+ * succeeds. It does not tell you what is in reach, though, and a runner with
+ * no prompt has no idea the key does anything — so the same reachability rule
+ * is evaluated here purely to draw the prompt. It decides nothing.
+ */
+function reachableAction(
+  snapshot: NetSnapshot,
+  selfId: string,
+  position: THREE.Vector3,
+): 'pickup' | 'insert' | null {
+  const me = snapshot.players.find((player) => player.sessionId === selfId);
+  if (!me || me.role !== 'runner' || !me.alive) return null;
+
+  if (me.carrying) {
+    const reach = Math.hypot(
+      position.x - EMP_STATION_POSITION[0],
+      position.z - EMP_STATION_POSITION[1],
+    );
+    return reach <= EMP_STATION_RADIUS ? 'insert' : null;
+  }
+
+  const near = snapshot.cores.some(
+    (core) =>
+      (core.state === 'onPad' || core.state === 'loose') &&
+      Math.hypot(position.x - core.x, position.z - core.z) <= CORE_PICKUP_RADIUS,
+  );
+  return near ? 'pickup' : null;
+}
 
 const HINTS: Record<Pilot, string> = {
   runner: 'RUNNER — WASD move · SPACE jump · C fly the drone · O free cam · ~ debug',
@@ -99,6 +139,19 @@ async function boot(): Promise<void> {
   // the whole single-player build behaves exactly as before.
   const net = new Connection();
   const avatars = new RemoteAvatars(view.scene);
+  // Filler players, so a round can be played below the 3-human minimum. Only
+  // the host ever ticks them; every other client just sees relayed avatars.
+  const bots = new Bots();
+  const botInteract = new Map<string, boolean>();
+  let botSendTimer = 0;
+  let lastPhase = '';
+  /** Session id of the bot flying the drone, when the host is simulating it. */
+  let botDroneId = '';
+  /** Relayed runners, so the autopilot chases the whole room and not just us. */
+  const autopilotTargets: { alive: boolean; position: THREE.Vector3 }[] = [];
+  /** Local mirror of the server's hold timer, purely to fill the prompt bar. */
+  let netHoldKind: 'pickup' | 'insert' | null = null;
+  let netHoldTimer = 0;
   net.onDetonation = (message) => {
     // Server-declared detonation: same presentation as the local path, but the
     // kill list is the server's — this client decides nothing.
@@ -133,6 +186,9 @@ async function boot(): Promise<void> {
     onReady: (ready) => net.setReady(ready),
     onStart: () => net.start(),
     onSolo: () => { soloMode = true; },
+    onPractice: (on) => net.setPractice(on),
+    onRole: (role) => net.setRole(role),
+    onBots: (count) => net.setBots(count),
   });
   // With no server configured there is nothing to join, so go straight in.
   if (soloMode) lobby.hide();
@@ -192,6 +248,21 @@ async function boot(): Promise<void> {
       },
       scriptDone: () => testScript.length === 0,
       endPos: () => ({ x: testEndPos.x, y: testEndPos.y, z: testEndPos.z }),
+      // What is actually being drawn. Online there must be exactly one drone
+      // and one set of cores; a duplicated local copy shows up here as a
+      // non-zero localCores or a visible local drone that nobody is flying.
+      census: () => ({
+        localCores: objective.cores.filter((core) => core.mesh.visible).length,
+        localCorePositions: objective.cores.map((core) => [
+          core.mesh.position.x,
+          core.mesh.position.y,
+          core.mesh.position.z,
+        ]),
+        localDroneVisible: drone.object.visible,
+        localDroneSimulating: drone.isActive,
+        botDroneId,
+        ...avatars.census(),
+      }),
     };
   }
   let roundClock = 0;
@@ -218,7 +289,10 @@ async function boot(): Promise<void> {
     // flown by the phase 4 script, so the objective always has pressure on it.
     runner.fixedUpdate(dt, moveInput, camera.heading);
 
-    let flown = pilot === 'drone' ? droneInput : autopilot.update(drone.position, runners);
+    // Online the autopilot flies the bot drone against everyone in the room;
+    // offline it flies the phase 4 scripted drone against the local runner.
+    const quarry = net.connected ? autopilotTargets : runners;
+    let flown = pilot === 'drone' ? droneInput : autopilot.update(drone.position, quarry);
     if (testScript.length > 0) {
       // Deterministic scripted input (dev-only hook): consumed in fixed steps,
       // so frame rate cannot smear the sequence. Used for FPV parity proof.
@@ -239,24 +313,26 @@ async function boot(): Promise<void> {
     }
     drone.fixedUpdate(dt, flown, washTargets, fuse);
 
-    // SACRED CONSTRAINT 3: when a server is connected, battery lives there and
-    // only there. The local fuse (and its blast) runs solely offline — without
-    // this gate the client computes a parallel detonation while online, which
-    // is exactly what the constraint forbids.
-    if (net.connected) return;
-
-    // The battery is the only thing that can trigger a detonation — sacred
-    // constraint 2 — so the blast is a consequence of this step, not an action.
-    const detonation = fuse.step(dt, drone.position, drone.settled, objective.availablePads());
-    if (detonation) {
-      applyBlast(detonation.position, runners);
-      confetti.burst(detonation.position);
-      sfx.detonation();
-      juice.detonation(runner.position.distanceTo(detonation.position as THREE.Vector3), DETONATION_RADIUS);
-      // Being blown up hands you a gremlin, and every detonation refreshes the
-      // one hazard trigger a gremlin gets.
-      gremlin.onDetonation();
-      if (!runner.alive && !gremlin.active) gremlin.enter(runner.position);
+    // SACRED CONSTRAINT 3: when a server is connected, the battery lives there
+    // and only there, so the local fuse and the blast it causes are strictly
+    // offline — without this gate the client computes a parallel detonation
+    // while online, which is exactly what the constraint forbids. Everything
+    // below it still runs online: hazards and the gremlin are how a runner
+    // acts on the world, and the server owns their consequences, not the act.
+    if (!net.connected) {
+      // The battery is the only thing that can trigger a detonation — sacred
+      // constraint 2 — so the blast is a consequence of this step, not an action.
+      const detonation = fuse.step(dt, drone.position, drone.settled, objective.availablePads());
+      if (detonation) {
+        applyBlast(detonation.position, runners);
+        confetti.burst(detonation.position);
+        sfx.detonation();
+        juice.detonation(runner.position.distanceTo(detonation.position as THREE.Vector3), DETONATION_RADIUS);
+        // Being blown up hands you a gremlin, and every detonation refreshes
+        // the one hazard trigger a gremlin gets.
+        gremlin.onDetonation();
+        if (!runner.alive && !gremlin.active) gremlin.enter(runner.position);
+      }
     }
 
     hazards.fixedUpdate(dt, runner, drone, interactHeld);
@@ -272,6 +348,10 @@ async function boot(): Promise<void> {
     // Eliminated: fly the gremlin instead of the runner.
     if (gremlin.active) gremlin.fixedUpdate(dt, moveInput, gremlinLift, camera.heading);
 
+    // Offline the local objective IS the objective. Online the server runs it
+    // and this copy would only fight it, so the prompt is derived from the
+    // snapshot instead (see promptFor) and nothing here steps.
+    if (net.connected) return;
     objective.step(dt, runners, interactHeld);
     if (objective.fired && empFlash === 0) {
       juice.empFired();
@@ -304,7 +384,9 @@ async function boot(): Promise<void> {
     const frameDelta = juice.consumeHitstop(realDelta);
 
     if (input.consumePress(KEY_DEBUG)) overlay.toggle();
-    if (input.consumePress(KEY_SWAP)) {
+    // Offline you can swap bodies freely, which is how the single-player build
+    // lets one person feel both sides. Online the server assigns the role.
+    if (input.consumePress(KEY_SWAP) && !net.connected) {
       pilot = pilot === 'runner' ? 'drone' : 'runner';
       camera.reset();
       if (pilot === 'drone') camera.setYaw(drone.yaw);
@@ -378,6 +460,101 @@ async function boot(): Promise<void> {
 
     physics.advance(frameDelta);
 
+    // Server-authoritative state, rendered verbatim and never recomputed.
+    // Read before anything draws, because online it decides what is drawn:
+    // who is flying, where the cores are, and which pads are blocked.
+    const snapshot = net.snapshot();
+    if (snapshot) {
+      lobby.update(snapshot, net.sessionId);
+      avatars.update(snapshot, net.sessionId, frameDelta);
+      fuse.charge = snapshot.battery;
+      fuse.cycle = snapshot.cycle;
+      fuse.state = snapshot.fuseState as typeof fuse.state;
+      // The server assigns roles, so online the pilot is not ours to choose:
+      // whoever it says is the drone flies, and every other client stows its
+      // local copy of the drone rather than simulating a second one.
+      const me = snapshot.players.find((player) => player.sessionId === net.sessionId);
+      const playing = snapshot.phase === 'playing';
+      const flying = me?.role === 'drone' && playing;
+      if (flying !== (pilot === 'drone')) {
+        pilot = flying ? 'drone' : 'runner';
+        camera.reset();
+        if (flying) camera.setYaw(drone.yaw);
+        setHint();
+      }
+
+      // A bot in the pilot seat is flown by the host, using the same physics
+      // body and the same autopilot the offline build uses — so a bot drone
+      // handles exactly as badly as a real one, which is the whole game.
+      const botDrone = snapshot.players.find((player) => player.role === 'drone' && player.bot);
+      const hostFliesBot = Boolean(botDrone) && snapshot.host === net.sessionId && playing;
+      botDroneId = hostFliesBot ? (botDrone?.sessionId ?? '') : '';
+
+      // Simulate when we are flying, or when we are the host flying a bot.
+      // Only draw the local body when it is ours: the bot's is drawn from the
+      // relay, the same copy every other client sees.
+      drone.setActive(flying || hostFliesBot, flying);
+
+      // Stowed but not gone: the local drone's position tracks the relayed one
+      // so every range check a runner makes — swat, thrown prop, ceiling fan —
+      // and the prop whine's panning all target the drone that really exists.
+      if (!flying && !hostFliesBot && avatars.droneTracked) {
+        drone.position.copy(avatars.dronePosition);
+        drone.object.position.copy(avatars.dronePosition);
+      }
+      objective.setCoresVisible(false);
+
+      autopilotTargets.length = 0;
+      for (const player of snapshot.players) {
+        if (player.role !== 'runner') continue;
+        autopilotTargets.push({
+          alive: player.alive,
+          position: new THREE.Vector3(player.x, player.y, player.z),
+        });
+      }
+
+      if (snapshot.phase !== lastPhase) {
+        lastPhase = snapshot.phase;
+        // A fresh round puts the bots back on the start line, and clears the
+        // edge-triggered interact state so the first hold is sent again.
+        bots.reset();
+        botInteract.clear();
+        if (snapshot.phase === 'playing') runner.respawn();
+      }
+
+      // Only the host ticks the bots. Every client running them would relay
+      // conflicting positions for the same bodies, and the server takes bot
+      // moves from the host alone anyway.
+      if (snapshot.host === net.sessionId && snapshot.phase === 'playing') {
+        const commands = bots.update(frameDelta, snapshot, net.sessionId);
+        botSendTimer += frameDelta;
+        // Positions go out at the same rate as a human's, so bots cost the
+        // same bandwidth as the players they stand in for.
+        const due = botSendTimer >= 1 / CLIENT_SEND_HZ;
+        if (due) botSendTimer = 0;
+        for (const command of commands) {
+          if (due) net.sendBotMove(command.id, command.x, command.y, command.z, command.yaw);
+          if (botInteract.get(command.id) !== command.interacting) {
+            botInteract.set(command.id, command.interacting);
+            net.sendBotInteract(command.id, command.interacting);
+          }
+        }
+        // The bot drone rides the same relay as the bot runners; its body is
+        // the local Rapier one, so the server sees a real flight path.
+        if (due && botDroneId) {
+          net.sendBotMove(
+            botDroneId,
+            drone.position.x,
+            drone.position.y,
+            drone.position.z,
+            drone.yaw,
+          );
+        }
+      }
+    } else if (net.error) {
+      avatars.clear();
+    }
+
     runner.render(physics.alpha, frameDelta);
     drone.render(physics.alpha, frameDelta, fuse.telegraphProgress, fuse.charge);
     arena.render(frameDelta);
@@ -386,9 +563,20 @@ async function boot(): Promise<void> {
     // blue drone docked, grey sabotaged.
     const dockedPad = fuse.pad;
     const sabotaged = new Set(hazards.disabledPadIndices());
+    // Online the server's cores decide which pads are denied; offline the
+    // local ones do. Same rule, one source of truth at a time.
+    const blockedPads = snapshot
+      ? new Set(
+          snapshot.cores
+            .filter((core) => (core.state === 'onPad' || core.state === 'loose') && core.pad >= 0)
+            .map((core) => core.pad),
+        )
+      : null;
     for (let i = 0; i < CHARGE_PAD_POSITIONS.length; i += 1) {
       const pad = CHARGE_PAD_POSITIONS[i]!;
-      const blocked = !objective.availablePads().some((free) => free[0] === pad[0] && free[1] === pad[1]);
+      const blocked = blockedPads
+        ? blockedPads.has(i)
+        : !objective.availablePads().some((free) => free[0] === pad[0] && free[1] === pad[1]);
       const docked = fuse.state === 'recharging' && dockedPad?.[0] === pad[0] && dockedPad[1] === pad[1];
       arena.setPadState(
         i,
@@ -396,6 +584,7 @@ async function boot(): Promise<void> {
       );
     }
     testCube.render(physics.alpha);
+    objective.render(frameDelta);
     hazards.render(physics.alpha, frameDelta, runner);
     gremlin.render(frameDelta);
     confetti.update(frameDelta);
@@ -463,10 +652,12 @@ async function boot(): Promise<void> {
         `  ${fuse.secondsRemaining.toFixed(1)}s left`,
       `runner       ${runner.alive ? 'alive' : 'ELIMINATED'}${runner.carrying ? ' CARRYING' : ''}` +
         `   audio ${whine.running ? 'on' : 'off (click)'}`,
-      `objective    cores ${objective.status().inserted}/${objective.status().required}` +
-        `  charge ${(objective.charge * 100).toFixed(1)}%` +
-        `  in zone ${objective.status().present}/${objective.status().needed}` +
-        `${objective.fired ? '  EMP FIRED — RUNNERS WIN' : ''}`,
+      `objective    cores ${snapshot ? snapshot.coresInserted : objective.status().inserted}` +
+        `/${CORES_REQUIRED}` +
+        `  charge ${((snapshot ? snapshot.empCharge : objective.charge) * 100).toFixed(1)}%` +
+        `  in zone ${snapshot ? snapshot.empPresent : objective.status().present}` +
+        `/${snapshot ? snapshot.empNeeded : objective.status().needed}` +
+        `${(snapshot ? snapshot.winner === 'runners' : objective.fired) ? '  EMP FIRED — RUNNERS WIN' : ''}`,
       `gremlin      ${gremlin.status().active ? `flying · triggers ${gremlin.status().actionsLeft}` : 'inactive'}` +
         `${gremlin.status().blocked ? ` (${gremlin.status().blocked})` : ''}`,
       `hazards      swat ${hazards.status().swatCooldown.toFixed(1)}s` +
@@ -474,7 +665,9 @@ async function boot(): Promise<void> {
         `  net ${hazards.status().netSlow > 0 ? 'TANGLED' : '-'}` +
         `  knocked ${drone.knocked ? 'YES' : 'no'}` +
         `  sabotaged [${hazards.disabledPadIndices().join(',')}]`,
-      `pads free    ${objective.availablePads().length}/3   camera ${fpvMode && pilot === 'drone' ? 'FPV' : 'chase'}`,
+      `pads free    ${blockedPads ? CHARGE_PAD_POSITIONS.length - blockedPads.size : objective.availablePads().length}` +
+        `/${CHARGE_PAD_POSITIONS.length}` +
+        `   camera ${fpvMode && pilot === 'drone' ? 'FPV' : 'chase'}`,
       ...runner.debugLines(),
       ...drone.debugLines(),
       `cube y       ${testCube.height.toFixed(2)}  ${testCube.isAsleep ? '(asleep)' : '(awake)'}`,
@@ -485,17 +678,6 @@ async function boot(): Promise<void> {
     ]);
     overlay.update(frameDelta, physics);
 
-    // Server-authoritative state, rendered verbatim and never recomputed.
-    const snapshot = net.snapshot();
-    if (snapshot) {
-      lobby.update(snapshot, net.sessionId);
-      avatars.update(snapshot, net.sessionId, frameDelta);
-      fuse.charge = snapshot.battery;
-      fuse.cycle = snapshot.cycle;
-      fuse.state = snapshot.fuseState as typeof fuse.state;
-    } else if (net.error) {
-      avatars.clear();
-    }
     net.update(
       frameDelta,
       pilot === 'drone'
@@ -505,15 +687,52 @@ async function boot(): Promise<void> {
     );
 
     if (empFlash > 0) empFlash = Math.max(0, empFlash - frameDelta);
-    hud.updateObjective(objective.status(), empFlash / EMP_FLASH_TIME);
-    sfx.setEmpCharge(objective.fired ? 0 : objective.charge);
+    // The hold prompt is a local affordance and stays local; the numbers it
+    // sits under are the server's whenever there is one (sacred constraint 3
+    // is about battery, but the same reasoning covers cores and the EMP).
+    const local = objective.status();
+    let status = local;
+    if (snapshot) {
+      const action = snapshot.phase === 'playing'
+        ? reachableAction(snapshot, net.sessionId, runner.position)
+        : null;
+      // Reset on any change of target, so the bar never carries progress from
+      // one hold into the next.
+      if (action !== netHoldKind) {
+        netHoldKind = action;
+        netHoldTimer = 0;
+      }
+      netHoldTimer = action && interactHeld ? netHoldTimer + frameDelta : 0;
+      const duration = action === 'insert' ? CORE_INSERT_HOLD : CORE_PICKUP_HOLD;
+
+      status = {
+        ...local,
+        inserted: snapshot.coresInserted,
+        required: CORES_REQUIRED,
+        charge: snapshot.empCharge,
+        charging: snapshot.coresInserted >= CORES_REQUIRED,
+        present: snapshot.empPresent,
+        needed: snapshot.empNeeded,
+        fired: snapshot.winner === 'runners',
+        prompt: action === 'insert'
+          ? `hold E to insert core (${snapshot.coresInserted + 1}/${CORES_REQUIRED})`
+          : action === 'pickup' ? 'hold E to pick up core' : null,
+        holdProgress: action ? Math.min(netHoldTimer / duration, 1) : 0,
+      };
+    }
+    hud.updateObjective(status, empFlash / EMP_FLASH_TIME);
+    sfx.setEmpCharge(status.fired ? 0 : status.charge);
     // Core count changing is the cue for the insert clunk.
-    if (objective.status().inserted !== lastInserted) {
-      lastInserted = objective.status().inserted;
+    if (status.inserted !== lastInserted) {
+      lastInserted = status.inserted;
       sfx.click(CLICK_PITCH_INSERT);
     }
-    if (runner.carrying !== lastCarrying) {
-      lastCarrying = runner.carrying;
+    // Online the server says who is carrying; offline our own body does.
+    const carrying = snapshot
+      ? (snapshot.players.find((player) => player.sessionId === net.sessionId)?.carrying ?? false)
+      : runner.carrying;
+    if (carrying !== lastCarrying) {
+      lastCarrying = carrying;
       if (lastCarrying) sfx.click(CLICK_PITCH_PICKUP);
     }
 

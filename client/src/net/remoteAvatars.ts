@@ -31,6 +31,18 @@ interface Avatar {
  * here — sacred constraint 5 means our own body is ours alone.
  */
 export class RemoteAvatars {
+  /**
+   * Where the relayed drone is right now.
+   *
+   * Runners need this: a swat, a thrown prop and a ceiling fan are all range
+   * checks against the drone, and online the only drone that exists for them
+   * is this avatar. Without it every hazard measures against a stowed local
+   * copy sitting at the spawn point and silently never connects.
+   */
+  readonly dronePosition = new THREE.Vector3();
+  /** False when nobody in the room is flying, so the position is stale. */
+  droneTracked = false;
+
   private readonly avatars = new Map<string, Avatar>();
   private readonly coreMeshes: THREE.Mesh[] = [];
 
@@ -39,8 +51,10 @@ export class RemoteAvatars {
   /** @param selfId our own session id, which must not be drawn twice. */
   update(snapshot: NetSnapshot, selfId: string, frameDelta: number): void {
     const seen = new Set<string>();
+    let droneId = '';
 
     for (const player of snapshot.players) {
+      if (player.role === 'drone') droneId = player.sessionId;
       if (player.sessionId === selfId) continue;
       seen.add(player.sessionId);
 
@@ -66,6 +80,12 @@ export class RemoteAvatars {
       avatar.group.position.lerp(avatar.target, blend);
       avatar.group.rotation.y += shortestAngle(avatar.group.rotation.y, avatar.targetYaw) * blend;
     }
+
+    // Read the interpolated position, not the raw snapshot: hazards should
+    // measure against the drone the player can actually see.
+    const flier = droneId && droneId !== selfId ? this.avatars.get(droneId) : undefined;
+    this.droneTracked = flier !== undefined;
+    if (flier) this.dronePosition.copy(flier.group.position);
 
     this.syncCores(snapshot);
   }
@@ -124,10 +144,19 @@ export class RemoteAvatars {
     }
   }
 
+  /** Dev-only census, so a test can assert what is actually on screen. */
+  census(): { avatars: number; cores: number; corePositions: number[][] } {
+    const corePositions = this.coreMeshes
+      .filter((mesh) => mesh.visible)
+      .map((mesh) => [mesh.position.x, mesh.position.y, mesh.position.z]);
+    return { avatars: this.avatars.size, cores: corePositions.length, corePositions };
+  }
+
   /** Remove everything, e.g. when the connection drops. */
   clear(): void {
     for (const avatar of this.avatars.values()) this.scene.remove(avatar.group);
     this.avatars.clear();
+    this.droneTracked = false;
     for (const mesh of this.coreMeshes) mesh.visible = false;
   }
 }

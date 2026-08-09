@@ -9,7 +9,17 @@ import {
 } from '@shared/constants';
 
 import type { DroneInput } from './drone';
-import type { Runner } from './runner';
+
+/**
+ * All the autopilot needs of a runner: whether they are up, and where.
+ *
+ * Structural rather than the Runner class, because online the targets are
+ * relayed players with no physics body of their own.
+ */
+export interface AutopilotTarget {
+  readonly alive: boolean;
+  readonly position: THREE.Vector3;
+}
 
 /**
  * The scripted drone from phase 4.
@@ -33,7 +43,7 @@ export class Autopilot {
    * @param position where the drone currently is.
    * @returns the input to fly this step.
    */
-  update(position: THREE.Vector3, runners: readonly Runner[]): DroneInput {
+  update(position: THREE.Vector3, runners: readonly AutopilotTarget[]): DroneInput {
     const quarry = this.nearestRunner(position, runners);
     const target = quarry ?? this.currentWaypoint(position);
     const targetAltitude = quarry ? AI_ATTACK_ALTITUDE : AI_PATROL_ALTITUDE;
@@ -52,7 +62,7 @@ export class Autopilot {
     return this.input;
   }
 
-  private nearestRunner(position: THREE.Vector3, runners: readonly Runner[]): THREE.Vector3 | null {
+  private nearestRunner(position: THREE.Vector3, runners: readonly AutopilotTarget[]): THREE.Vector3 | null {
     let best: THREE.Vector3 | null = null;
     let bestDistance = AI_CHASE_RADIUS;
     for (const runner of runners) {

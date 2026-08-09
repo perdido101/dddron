@@ -280,6 +280,39 @@
       }
       .lobby-players li, .lobby-scores li { padding: 4px 0; border-bottom: 1px solid #e3e9f0; }
       .lobby-hint, .lobby-status, .lobby-awards { margin: 6px 0 0; font-size: 11px; opacity: 0.65; }
+      /* Setup block: practice toggle, role picker and bot count. Laid out as
+         label + control rows so it reads as settings rather than more buttons. */
+      .lobby-setup {
+        margin: 0 0 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: #e8eef6;
+        text-align: left;
+      }
+      .lobby-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        opacity: 0.75;
+      }
+      .lobby-row:last-child { margin-bottom: 0; }
+      .lobby-row > span { flex: 1; }
+      .lobby-row button {
+        width: auto;
+        min-width: 34px;
+        margin: 0;
+        padding: 6px 10px;
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        background: #ccd6e2;
+        color: #435060;
+      }
+      .lobby-row button[data-on='1'] { background: #7fd4a8; color: #12301f; }
+      .lobby-botcount { min-width: 18px; text-align: center; font-weight: 700; opacity: 1; }
       .lobby-result-cause { margin: 0 0 14px; font-size: 12px; opacity: 0.7; }
       #boot {
         position: fixed;

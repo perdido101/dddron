@@ -33,6 +33,8 @@ export class PlayerState extends Schema {
   survived = 0;
   coresDropped = 0;
   fanLaunches = 0;
+  /** Server-driven filler player. Simulated by the host client. */
+  bot = false;
 }
 defineTypes(PlayerState, {
   sessionId: 'string',
@@ -51,6 +53,7 @@ defineTypes(PlayerState, {
   survived: 'uint8',
   coresDropped: 'uint8',
   fanLaunches: 'uint8',
+  bot: 'boolean',
 });
 
 export class CoreEntity extends Schema {
@@ -104,6 +107,13 @@ export class GameState extends Schema {
   totalRounds = 0;
   /** Drone knockdown, so every client can see it is grounded (phase 7). */
   droneKnocked = false;
+  /**
+   * Practice mode: one player is enough, and results are not scored into the
+   * match. Deliberately a separate flag rather than a lowered minimum, so real
+   * matches keep the brief's 3-player rule intact.
+   */
+  practice = false;
+  botCount = 0;
 }
 defineTypes(GameState, {
   players: { map: PlayerState },
@@ -124,4 +134,6 @@ defineTypes(GameState, {
   round: 'uint8',
   totalRounds: 'uint8',
   droneKnocked: 'boolean',
+  practice: 'boolean',
+  botCount: 'uint8',
 });
