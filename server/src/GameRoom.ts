@@ -793,11 +793,40 @@ export class GameRoom extends Room<GameState> {
 
   // ------------------------------------------------------------------ helpers
 
+  /**
+   * Runners spawn on an arc rather than in a stack.
+   *
+   * Everyone landing on the exact same point means the round opens with five
+   * bodies interpenetrating and every third-person camera looking at the
+   * inside of somebody else's head. The arc is deterministic from the join
+   * order, so every client agrees without the server sending anything extra.
+   */
   private placeAtSpawn(player: PlayerState): void {
-    const spawn = player.role === 'drone' ? DRONE_SPAWN : RUNNER_SPAWN;
-    player.x = spawn[0];
-    player.y = spawn[1];
-    player.z = spawn[2];
+    if (player.role === 'drone') {
+      player.x = DRONE_SPAWN[0];
+      player.y = DRONE_SPAWN[1];
+      player.z = DRONE_SPAWN[2];
+      return;
+    }
+    const index = this.spawnIndex(player);
+    // Alternate left and right of centre so the group stays centred on the
+    // spawn point however many runners there are.
+    const step = Math.ceil(index / 2) * (index % 2 === 1 ? -1 : 1);
+    const angle = step * SPAWN_ARC_STEP;
+    player.x = RUNNER_SPAWN[0] + Math.sin(angle) * SPAWN_ARC_RADIUS;
+    player.y = RUNNER_SPAWN[1];
+    player.z = RUNNER_SPAWN[2] + (Math.cos(angle) - 1) * SPAWN_ARC_RADIUS;
+  }
+
+  /** Position of this player among the runners, in join order. */
+  private spawnIndex(player: PlayerState): number {
+    let index = 0;
+    let found = 0;
+    this.state.players.forEach((other) => {
+      if (other === player) found = index;
+      if (other.role !== 'drone') index += 1;
+    });
+    return found;
   }
 
   private hasDrone(): boolean {
@@ -907,6 +936,9 @@ const WASH_RANGE_TOLERANCE = 2.0;
 const DEV_TOOLS = process.env.BUZZKILL_DEV === '1';
 /** Cycle is a uint8 in the schema and the fuse shortens each time. */
 const DEV_MAX_CYCLE = 20;
+/** Runner spawn arc: radius in metres and the angular gap between bodies. */
+const SPAWN_ARC_RADIUS = 3.2;
+const SPAWN_ARC_STEP = 0.55;
 
 function clamp01(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;

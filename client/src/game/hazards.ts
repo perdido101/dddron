@@ -32,7 +32,8 @@ import type { Runner } from './runner';
 /** A loose prop that can be picked up and thrown at the drone. */
 interface Throwable {
   body: RAPIER.RigidBody;
-  mesh: THREE.Mesh;
+  /** A sphere at boot, a Kenney prop once the models land. */
+  mesh: THREE.Object3D;
   transform: InterpolatedTransform;
   held: boolean;
 }
@@ -133,6 +134,10 @@ export class Hazards {
       );
       this.physics.world.createCollider(RAPIER.ColliderDesc.ball(THROWABLE_RADIUS), body);
 
+      // A sphere until the real prop arrives. The collider stays a ball
+      // whatever the mesh becomes: a crate that tumbles like a ball is far
+      // less annoying than one that catches its corners on the floor, and the
+      // props exist to be thrown, not to be furniture.
       const mesh = new THREE.Mesh(new THREE.SphereGeometry(THROWABLE_RADIUS, 12, 10), material);
       mesh.castShadow = true;
       this.scene.add(mesh);
@@ -158,6 +163,36 @@ export class Hazards {
     if (!enabled) {
       this.netSlowTimer = 0;
       this.disabledPads.clear();
+    }
+  }
+
+  /**
+   * Swap the placeholder spheres for the Kenney props (crate, bucket, barrel,
+   * rock — CC0). Called once the models load, mid-game if need be: each mesh
+   * is replaced under its existing rigid body, so nothing about the physics,
+   * the throw or the knockdown changes.
+   */
+  setPropModels(models: readonly THREE.Object3D[]): void {
+    if (models.length === 0) return;
+    for (let i = 0; i < this.throwables.length; i += 1) {
+      const prop = this.throwables[i];
+      const source = models[i % models.length];
+      if (!prop || !source) continue;
+
+      const model = source.clone(true);
+      // Scale to the collider so a big barrel and a small bucket both throw
+      // the same, then sit the model on the ball's centre.
+      const bounds = new THREE.Box3().setFromObject(model);
+      const size = Math.max(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y, 1e-3);
+      model.scale.setScalar((THROWABLE_RADIUS * 2) / size);
+      model.position.y = -((bounds.min.y + bounds.max.y) / 2) * model.scale.y;
+
+      const holder = new THREE.Group();
+      holder.add(model);
+      this.scene.remove(prop.mesh);
+      if (prop.mesh instanceof THREE.Mesh) prop.mesh.geometry.dispose();
+      prop.mesh = holder;
+      this.scene.add(holder);
     }
   }
 

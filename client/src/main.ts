@@ -37,6 +37,7 @@ import { View } from './engine/view';
 import { Arena } from './game/arena';
 import { Autopilot } from './game/autopilot';
 import { Bots } from './game/bots';
+import { Character, loadCharacter, loadProps } from './game/character';
 import { Confetti } from './game/confetti';
 import { Drone } from './game/drone';
 import { FollowCamera } from './game/followCamera';
@@ -242,6 +243,16 @@ async function boot(): Promise<void> {
         },
       })
     : null;
+
+  // The character model loads in the background. The game is playable from the
+  // first frame with primitive bodies and upgrades in place when it arrives —
+  // a 134 kB decoration must never hold up the thing it decorates.
+  void loadCharacter().then(({ scene, animations }) => {
+    if (!scene) return;
+    avatars.setCharacterTemplate(scene, animations);
+    runner.attachCharacter(new Character(scene, animations));
+  });
+  void loadProps().then((props) => hazards.setPropModels(props));
 
   const sizeFpv = (): void => fpv.resize(window.innerWidth, window.innerHeight);
   sizeFpv();
@@ -518,8 +529,11 @@ async function boot(): Promise<void> {
         moveInput.set(strafe, forward);
         if (input.pointerLocked) camera.look(input.mouseDeltaX, input.mouseDeltaY);
         if (input.consumePress(KEY_JUMP)) runner.queueJump();
-        if (input.consumePress(KEY_SWAT) && hazards.swat(runner, drone, camera.heading)) {
-          juice.swatConnected();
+        if (input.consumePress(KEY_SWAT)) {
+          // The swing plays whether or not it lands: a whiff you cannot see is
+          // indistinguishable from an input that was dropped.
+          runner.playSwat();
+          if (hazards.swat(runner, drone, camera.heading)) juice.swatConnected();
         }
         if (input.consumePress(KEY_THROW)) hazards.toggleProp(runner, camera.heading);
       } else {
@@ -645,7 +659,7 @@ async function boot(): Promise<void> {
     }
     devConsole?.setContext(snapshot !== null, snapshot?.devEnabled ?? false);
 
-    runner.render(physics.alpha, frameDelta);
+    runner.render(physics.alpha, frameDelta, interactHeld);
     drone.render(physics.alpha, frameDelta, fuse.telegraphProgress, fuse.charge);
     arena.render(frameDelta);
 

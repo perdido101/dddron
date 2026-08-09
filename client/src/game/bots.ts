@@ -60,12 +60,13 @@ export class Bots {
 
       let body = this.bodies.get(player.sessionId);
       if (!body) {
-        // Spread spawns so bots do not stack into one column at the start.
-        const spread = this.bodies.size * BOT_SPAWN_SPACING;
+        // Seed from where the server already put them. It spreads runners on
+        // an arc at spawn, and inventing our own start here would make every
+        // bot visibly jump on its first relayed frame.
         body = {
           id: player.sessionId,
-          position: new THREE.Vector3(RUNNER_SPAWN[0] + spread, RUNNER_SPAWN[1], RUNNER_SPAWN[2]),
-          yaw: 0,
+          position: new THREE.Vector3(player.x, player.y, player.z),
+          yaw: player.yaw,
           interacting: false,
         };
         this.bodies.set(player.sessionId, body);
@@ -140,18 +141,15 @@ export class Bots {
     body.yaw = Math.atan2(-dx, -dz);
   }
 
-  /** Reset every body to spawn, e.g. at the start of a round. */
+  /**
+   * Forget every body, e.g. at the start of a round.
+   *
+   * Dropping them rather than repositioning them means the next update reseeds
+   * from the server's fresh spawn placement, so there is one authority on
+   * where a round starts instead of two that can disagree.
+   */
   reset(): void {
-    let index = 0;
-    for (const body of this.bodies.values()) {
-      body.position.set(
-        RUNNER_SPAWN[0] + index * BOT_SPAWN_SPACING,
-        RUNNER_SPAWN[1],
-        RUNNER_SPAWN[2],
-      );
-      body.interacting = false;
-      index += 1;
-    }
+    this.bodies.clear();
   }
 
   get count(): number {
@@ -179,7 +177,6 @@ const TARGET = new THREE.Vector3();
 const STATION_INSET = 0.55;
 const PICKUP_INSET = 0.7;
 const ARRIVE_EPSILON = 0.05;
-const BOT_SPAWN_SPACING = 1.6;
 /** Bots walk at ground height; they never jump or fall. */
 const BOT_GROUND_DROP = 1.1;
 

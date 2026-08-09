@@ -9,6 +9,7 @@ import {
   CEILING_BLOCK_EPSILON,
   COLOR_RUNNER,
   RUNNER_COLORWAYS,
+  SWAT_ANIM_TIME,
   COLOR_RUNNER_HEAD,
   CORE_DROP_PUSH,
   CONTROLLER_AUTOSTEP_HEIGHT,
@@ -46,6 +47,7 @@ import {
 } from '@shared/constants';
 
 import { InterpolatedTransform } from '../engine/interpolation';
+import type { Character } from './character';
 import type { Physics } from '../engine/physics';
 
 /**
@@ -77,6 +79,10 @@ export class Runner {
   private readonly figure = new THREE.Group();
   /** Shared by the body and the facing marker, so a colourway tints both. */
   private readonly bodyMaterial = new THREE.MeshLambertMaterial({ color: COLOR_RUNNER });
+  /** The capsule stand-in, hidden once the real character model arrives. */
+  private readonly primitives = new THREE.Group();
+  private character: Character | null = null;
+  private colorway = COLOR_RUNNER;
 
   private coyoteTimer = 0;
   private jumpBufferTimer = 0;
@@ -137,7 +143,7 @@ export class Runner {
       this.bodyMaterial,
     );
     bodyMesh.castShadow = true;
-    this.figure.add(bodyMesh);
+    this.primitives.add(bodyMesh);
 
     const head = new THREE.Mesh(
       new THREE.SphereGeometry(HEAD_RADIUS),
@@ -145,15 +151,33 @@ export class Runner {
     );
     head.position.y = HEAD_OFFSET;
     head.castShadow = true;
-    this.figure.add(head);
+    this.primitives.add(head);
 
-    // Facing marker — a stand-in for the sticker face landing in phase 10.
+    // Facing marker, so the primitive body still reads a direction.
     const snout = new THREE.Mesh(
       new THREE.BoxGeometry(HEAD_RADIUS, HEAD_RADIUS / 2, HEAD_RADIUS / 2),
       this.bodyMaterial,
     );
     snout.position.set(0, HEAD_OFFSET, -HEAD_RADIUS);
-    this.figure.add(snout);
+    this.primitives.add(snout);
+    this.figure.add(this.primitives);
+  }
+
+  /**
+   * Swap the primitive body for the animated Kenney character.
+   *
+   * Called after the model loads, which is deliberately after the game has
+   * already started: the arena is playable from the first frame and the body
+   * upgrades in place. If the load failed the primitives simply stay.
+   */
+  attachCharacter(character: Character): void {
+    this.character = character;
+    // The model stands on its own origin; the figure's origin is the capsule's
+    // centre, so drop it by half the capsule to put its feet on the ground.
+    character.object.position.y = -FOOT_OFFSET;
+    this.figure.add(character.object);
+    this.primitives.visible = false;
+    character.setColorway(this.colorway);
   }
 
   /**
@@ -164,9 +188,9 @@ export class Runner {
    * everyone else's view of you makes callouts useless.
    */
   setColorway(index: number): void {
-    this.bodyMaterial.color.setHex(
-      RUNNER_COLORWAYS[index % RUNNER_COLORWAYS.length] ?? COLOR_RUNNER,
-    );
+    this.colorway = RUNNER_COLORWAYS[index % RUNNER_COLORWAYS.length] ?? COLOR_RUNNER;
+    this.bodyMaterial.color.setHex(this.colorway);
+    this.character?.setColorway(this.colorway);
   }
 
   /**
@@ -179,6 +203,11 @@ export class Runner {
     // faintest brush at the very edge of the wash counts, and a core can never
     // be carried anywhere while the drone is on the same side of the arena.
     if (force.length() >= CORE_DROP_PUSH) this.shoved = true;
+  }
+
+  /** Play the melee swing. Cosmetic only — the swat's reach is Hazards' call. */
+  playSwat(): void {
+    this.character?.playOnce('attack-melee-right', SWAT_ANIM_TIME);
   }
 
   /** True once per shove. Reading it clears the flag. */
@@ -336,11 +365,23 @@ export class Runner {
     this.squashTimer = 0;
   }
 
-  /** Interpolate to the render time and drive the cosmetic rig. */
-  render(alpha: number, frameDelta: number): void {
+  /**
+   * Interpolate to the render time and drive the cosmetic rig.
+   *
+   * @param interacting whether the interact key is held, for the pick-up clip.
+   */
+  render(alpha: number, frameDelta: number, interacting = false): void {
     this.transform.readPosition(this.object.position, alpha);
 
     const speed = Math.hypot(this.realised.x, this.realised.z);
+
+    this.character?.update(frameDelta, {
+      speed,
+      grounded: this.grounded,
+      carrying: this.carrying,
+      alive: this.alive,
+      interacting,
+    });
     const speedRatio = Math.min(speed / RUN_SPEED, 1);
 
     if (speed > MOVE_EPSILON) {

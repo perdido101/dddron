@@ -679,6 +679,31 @@ export const COLOR_LIGHT_SKY = 0xe8f4ff;
 export const COLOR_LIGHT_GROUND = 0xb0a696;
 
 /**
+ * How long the melee swing clip is held before the state machine takes the
+ * body back. The Kenney clip is short; this stops a swing being cut off by
+ * the run cycle on the very next frame.
+ */
+export const SWAT_ANIM_TIME = 0.45;
+
+/**
+ * Sticker faces (manifest, PROC, P1): four expressions on an alpha plane
+ * parented to the head. Drawn to a canvas at boot — no image files.
+ */
+export const FACE_TEXTURE_SIZE = 128;
+export const FACE_PLANE_SIZE = 0.96;
+/** Distance at which the drone starts to read as "too close", for the panic face. */
+export const FACE_PANIC_RADIUS = 9.0;
+
+/**
+ * Proximity vignette (manifest, PROC, P1): red edge pulse that grows as the
+ * drone closes. Peaks at the detonation radius, because that is the distance
+ * the warning is actually about.
+ */
+export const VIGNETTE_RADIUS = 14.0;
+export const VIGNETTE_MAX_OPACITY = 0.55;
+export const VIGNETTE_PULSE_HZ = 2.2;
+
+/**
  * Rim light: a dim, cool light from behind and opposite the sun. It does no
  * work on the lit side and exists only to draw a bright edge on silhouettes,
  * which is what stops a runner disappearing against a same-value wall.

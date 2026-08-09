@@ -10,6 +10,7 @@ import {
   CORE_SHAFT_OPACITY,
   CORE_SHAFT_RADIUS,
   CORE_SHAFT_SPIN,
+  FOOT_OFFSET,
   COLOR_RUNNER,
   COLOR_RUNNER_HEAD,
   CORE_RADIUS,
@@ -20,12 +21,18 @@ import {
   RUNNER_COLORWAYS,
 } from '@shared/constants';
 
+import { Character } from '../game/character';
 import type { NetSnapshot } from './connection';
 
 interface Avatar {
   group: THREE.Group;
   target: THREE.Vector3;
   targetYaw: number;
+  /** The animated body, when the model loaded. Drones get none. */
+  character: Character | null;
+  /** Previous position, so speed can drive the clip without a velocity feed. */
+  readonly previous: THREE.Vector3;
+  speed: number;
 }
 
 /**
@@ -49,6 +56,8 @@ export class RemoteAvatars {
   /** False when nobody in the room is flying, so the position is stale. */
   droneTracked = false;
 
+  private template: THREE.Object3D | null = null;
+  private animations: THREE.AnimationClip[] = [];
   private readonly avatars = new Map<string, Avatar>();
   private readonly coreMeshes: THREE.Mesh[] = [];
   /** One light shaft per core, shown only while that core is carried. */
@@ -75,6 +84,22 @@ export class RemoteAvatars {
       avatar.target.set(player.x, player.y, player.z);
       avatar.targetYaw = player.yaw;
       avatar.group.visible = player.alive || player.role === 'drone';
+
+      if (avatar.character) {
+        // Speed comes from how far the avatar actually moved on screen, not
+        // from the snapshot: the interpolation below is what the eye sees, so
+        // that is what the walk-versus-sprint choice has to agree with.
+        const moved = avatar.group.position.distanceTo(avatar.previous);
+        avatar.speed = frameDelta > 0 ? moved / frameDelta : 0;
+        avatar.previous.copy(avatar.group.position);
+        avatar.character.update(frameDelta, {
+          speed: avatar.speed,
+          grounded: true,
+          carrying: player.carrying,
+          alive: player.alive,
+          interacting: false,
+        });
+      }
     }
 
     // Drop anyone who left.
@@ -101,6 +126,7 @@ export class RemoteAvatars {
 
   private createAvatar(role: string, colorway: number): Avatar {
     const group = new THREE.Group();
+    let character: Character | null = null;
 
     if (role === 'drone') {
       const hull = new THREE.Mesh(
@@ -109,6 +135,13 @@ export class RemoteAvatars {
       );
       hull.castShadow = true;
       group.add(hull);
+    } else if (this.template) {
+      // Same animated body as the local runner, so nobody looks different to
+      // themselves. Feet on the group origin, which is the collider's centre.
+      character = new Character(this.template, this.animations);
+      character.setColorway(RUNNER_COLORWAYS[colorway % RUNNER_COLORWAYS.length] ?? COLOR_RUNNER);
+      character.object.position.y = -FOOT_OFFSET;
+      group.add(character.object);
     } else {
       // The body carries the colourway; the head stays a constant skin tone,
       // so the tint reads as clothing rather than as a different species.
@@ -129,7 +162,23 @@ export class RemoteAvatars {
     }
 
     this.scene.add(group);
-    return { group, target: new THREE.Vector3(), targetYaw: 0 };
+    return {
+      group,
+      target: new THREE.Vector3(),
+      targetYaw: 0,
+      character,
+      previous: new THREE.Vector3(),
+      speed: 0,
+    };
+  }
+
+  /**
+   * Hand over the loaded character, once. Avatars created before this keep
+   * their primitives; in practice the model lands during the lobby.
+   */
+  setCharacterTemplate(scene: THREE.Object3D | null, animations: THREE.AnimationClip[]): void {
+    this.template = scene;
+    this.animations = animations;
   }
 
   /** Server-owned cores. Local core visuals are disabled while connected. */
