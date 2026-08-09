@@ -22,6 +22,11 @@ import {
   GROUND_THICKNESS,
   LEDGE,
   MARKER_RING_WIDTH,
+  PAD_COLOR_AVAILABLE,
+  PAD_COLOR_BLOCKED,
+  PAD_COLOR_DOCKED,
+  PAD_COLOR_SABOTAGED,
+  PAD_RING_SPIN,
   PILLARS,
   PLATFORM,
   RAMPS,
@@ -39,7 +44,14 @@ import type { Physics } from '../engine/physics';
  * /shared. Every mesh here has a matching fixed collider — nothing is
  * decorative unless it is flat on the floor.
  */
+export type PadState = 'available' | 'blocked' | 'docked' | 'sabotaged';
+
 export class Arena {
+  /** One material per pad, so each can show its own state. */
+  private readonly padMaterials: THREE.MeshLambertMaterial[] = [];
+  private readonly padRings: THREE.Mesh[] = [];
+  private ringClock = 0;
+
   private readonly wallMaterial = new THREE.MeshLambertMaterial({ color: COLOR_WALL });
   private readonly propMaterial = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
 
@@ -221,10 +233,11 @@ export class Arena {
    * as objective sites now and become real gameplay volumes in phases 3-4.
    */
   private buildMarkers(): void {
-    const padMaterial = new THREE.MeshLambertMaterial({ color: COLOR_CHARGE_PAD });
     for (const [x, z] of CHARGE_PAD_POSITIONS) {
+      const padMaterial = new THREE.MeshLambertMaterial({ color: COLOR_CHARGE_PAD });
+      this.padMaterials.push(padMaterial);
       this.cylinder({ x, y: CHARGE_PAD_HEIGHT / 2, z }, CHARGE_PAD_RADIUS, CHARGE_PAD_HEIGHT, padMaterial, false);
-      this.addRing(x, z, CHARGE_PAD_RADIUS, COLOR_CHARGE_PAD);
+      this.padRings.push(this.addRing(x, z, CHARGE_PAD_RADIUS, COLOR_CHARGE_PAD));
     }
 
     const [stationX, stationZ] = EMP_STATION_POSITION;
@@ -239,7 +252,31 @@ export class Arena {
   }
 
   /** Painted floor ring around an objective site. Visual only. */
-  private addRing(x: number, z: number, radius: number, color: number): void {
+  /**
+   * Pad state, straight from the asset manifest: green available, red
+   * core-blocked, blue drone docked, grey sabotaged. This is how a runner reads
+   * the board at a glance without any UI.
+   */
+  setPadState(index: number, state: PadState): void {
+    const material = this.padMaterials[index];
+    if (!material) return;
+    material.color.setHex(
+      state === 'blocked' ? PAD_COLOR_BLOCKED
+        : state === 'docked' ? PAD_COLOR_DOCKED
+        : state === 'sabotaged' ? PAD_COLOR_SABOTAGED
+        : PAD_COLOR_AVAILABLE,
+    );
+    const ring = this.padRings[index];
+    if (ring) (ring.material as THREE.MeshBasicMaterial).color.copy(material.color);
+  }
+
+  /** Slow ring rotation, so a live pad never looks like a painted decal. */
+  render(frameDelta: number): void {
+    this.ringClock += frameDelta * PAD_RING_SPIN;
+    for (const ring of this.padRings) ring.rotation.z = this.ringClock;
+  }
+
+  private addRing(x: number, z: number, radius: number, color: number): THREE.Mesh {
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(radius, radius + MARKER_RING_WIDTH, CYLINDER_SEGMENTS),
       new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }),
@@ -247,5 +284,6 @@ export class Arena {
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(x, DECAL_Y_OFFSET, z);
     this.scene.add(ring);
+    return ring;
   }
 }

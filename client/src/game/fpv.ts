@@ -14,8 +14,11 @@ import {
   FPV_SCANLINE_OPACITY,
   FPV_SENSOR_NOISE,
   FPV_SHADOW_TINT,
+  FPV_MAX_SKEW,
+  FPV_SHAKE_HZ,
   FPV_SHAKE_RPM_MULT,
   FPV_SHAKE_VELOCITY_MULT,
+  FPV_TILT_INHERIT,
   FPV_TELEGRAPH_EFFECT_MULT,
   FPV_TRANSITION_MS,
   FPV_VIGNETTE,
@@ -118,6 +121,8 @@ export class FpvFeed {
     throttle: number,
     telegraph: number,
     active: boolean,
+    bodyPitch = 0,
+    bodyRoll = 0,
   ): void {
     this.clock += frameDelta;
 
@@ -132,16 +137,18 @@ export class FpvFeed {
     const jitter =
       Math.min(velocity.length() / DRONE_MAX_SPEED, 1) * FPV_SHAKE_VELOCITY_MULT
       + Math.min(throttle, 1) * FPV_SHAKE_RPM_MULT;
-    this.shake.set(
-      Math.sin(this.clock * 91.3) * jitter,
-      Math.sin(this.clock * 77.7) * jitter,
-      0,
-    );
+    const w = this.clock * Math.PI * 2 * FPV_SHAKE_HZ;
+    this.shake.set(Math.sin(w) * jitter, Math.sin(w * 1.31 + 1.1) * jitter, 0);
     this.mount.position.set(
       FPV_CAMERA_OFFSET[0] + this.shake.x * SHAKE_TRANSLATION,
       FPV_CAMERA_OFFSET[1] + this.shake.y * SHAKE_TRANSLATION,
       -FPV_CAMERA_OFFSET[2],
     );
+    // The mount is a child of the tilting chassis, so it inherits the full body
+    // tilt for free. Counter-rotating by the unwanted fraction is how the
+    // inherit factor is applied without unparenting the camera.
+    const give = FPV_TILT_INHERIT - 1;
+    this.mount.rotation.set(bodyPitch * give, 0, bodyRoll * give);
     this.camera.rotation.set(this.shake.y, 0, this.shake.x);
 
     const boost = 1 + telegraph * (FPV_TELEGRAPH_EFFECT_MULT - 1);
@@ -149,8 +156,8 @@ export class FpvFeed {
     this.material.uniforms.uNoise!.value = FPV_SENSOR_NOISE * boost;
     this.material.uniforms.uSkew!.value = THREE.MathUtils.clamp(
       yawRate * FPV_ROLLING_SHUTTER * boost,
-      -MAX_SKEW,
-      MAX_SKEW,
+      -FPV_MAX_SKEW,
+      FPV_MAX_SKEW,
     );
     this.material.uniforms.uTransition!.value = this.transition;
   }
@@ -173,8 +180,6 @@ export class FpvFeed {
 
 /** How far the vibration is allowed to physically move the camera, in metres. */
 const SHAKE_TRANSLATION = 0.02;
-/** Cap on rolling-shutter skew so a fast spin cannot tear the frame apart. */
-const MAX_SKEW = 0.08;
 
 const VERTEX_SHADER = /* glsl */ `
   varying vec2 vUv;

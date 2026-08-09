@@ -28,6 +28,12 @@ import {
   DRONE_WANDER_HZ_Z,
   DRONE_VERTICAL_ACCELERATION,
   DRONE_YAW_SENSITIVITY,
+  BATTERY_COLOR_CRITICAL,
+  BATTERY_COLOR_FULL,
+  BATTERY_COLOR_LOW,
+  BATTERY_GAUGE_HEIGHT,
+  BATTERY_GAUGE_WIDTH,
+  BATTERY_LOW_FRACTION,
   GRAVITY,
   PROP_WASH_DOWNFORCE,
   PROP_WASH_FORCE,
@@ -85,6 +91,8 @@ export class Drone {
   private readonly chassis = new THREE.Group();
   private readonly rotors: THREE.Mesh[] = [];
   private readonly material = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
+  private gaugeFill!: THREE.Mesh;
+  private readonly gaugeMaterial = new THREE.MeshBasicMaterial({ color: BATTERY_COLOR_FULL });
   private telegraphClock = 0;
 
   private tiltPitch = 0;
@@ -175,7 +183,35 @@ export class Drone {
       this.chassis.add(guard);
     }
 
+    // Battery gauge: an emissive strip on the hull that mirrors the HUD, so the
+    // drone's state is legible from across the arena with no UI at all.
+    const backing = new THREE.Mesh(
+      new THREE.PlaneGeometry(BATTERY_GAUGE_WIDTH, BATTERY_GAUGE_HEIGHT),
+      new THREE.MeshBasicMaterial({ color: 0x22282f }),
+    );
+    backing.position.set(0, DRONE_BODY_HEIGHT * 0.1, -DRONE_RADIUS * 0.99);
+    this.chassis.add(backing);
+
+    this.gaugeFill = new THREE.Mesh(
+      new THREE.PlaneGeometry(BATTERY_GAUGE_WIDTH, BATTERY_GAUGE_HEIGHT * GAUGE_INSET),
+      this.gaugeMaterial,
+    );
+    this.gaugeFill.position.set(0, DRONE_BODY_HEIGHT * 0.1, -DRONE_RADIUS * 1.01);
+    this.chassis.add(this.gaugeFill);
+
     this.object.add(this.chassis);
+  }
+
+  /** Drive the body gauge from the authoritative battery, never from a guess. */
+  private renderGauge(charge: number): void {
+    this.gaugeFill.scale.x = Math.max(charge, 0.001);
+    // Scaling a centred plane shrinks it both ways, so shift it to stay left-aligned.
+    this.gaugeFill.position.x = -(BATTERY_GAUGE_WIDTH / 2) * (1 - charge);
+    this.gaugeMaterial.color.setHex(
+      charge <= 0 ? BATTERY_COLOR_CRITICAL
+        : charge <= BATTERY_LOW_FRACTION ? BATTERY_COLOR_LOW
+        : BATTERY_COLOR_FULL,
+    );
   }
 
   /** Feed raw pointer-lock deltas. The drone turns; it does not pitch. */
@@ -226,6 +262,15 @@ export class Drone {
   /** The tilting body, which the FPV camera bolts onto. */
   get chassisObject(): THREE.Object3D {
     return this.chassis;
+  }
+
+  /**
+   * Hide the drone's own hull and rotors. The onboard camera sits between the
+   * rotors, so from inside the feed they fill the frame and read as clutter --
+   * you are looking OUT of the drone, not at it.
+   */
+  setBodyVisible(visible: boolean): void {
+    this.chassis.visible = visible;
   }
 
   /** Radians per second of turn, which is what skews a cheap rolling shutter. */
@@ -445,7 +490,8 @@ export class Drone {
     this.transform.push(this.position);
   }
 
-  render(alpha: number, frameDelta: number, telegraph = 0): void {
+  render(alpha: number, frameDelta: number, telegraph = 0, charge = 1): void {
+    this.renderGauge(charge);
     this.transform.readPosition(this.object.position, alpha);
     this.renderTelegraph(frameDelta, this.dead ? 0 : telegraph);
 
@@ -534,6 +580,8 @@ export class Drone {
 
 /** How fast the scripted pilot may swing the drone around, in rad/s. */
 const AI_TURN_RATE = 2.2;
+/** The fill sits slightly inside its backing so the gauge has a visible border. */
+const GAUGE_INSET = 0.72;
 
 /** Vertical speed below which a falling drone counts as landed. */
 const SETTLED_SPEED = 0.5;

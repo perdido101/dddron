@@ -21,7 +21,7 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 | 7 | Hazards and counterplay | done |
 | 8 | Elimination and spectator gremlins | done |
 | 9 | Match structure, rotation and scoring | done |
-| 10 | Juice and audio (art pass partial — see below) | partial |
+| 10 | Juice, audio, procedural art | partial — sourced art outstanding |
 | 11 | Deploy (client live; server host outstanding) | partial |
 
 Phases 1 and 2 each end in a feel gate. Nothing past a gate gets built until a

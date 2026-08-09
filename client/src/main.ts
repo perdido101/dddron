@@ -6,6 +6,7 @@ import {
   CAMERA_DISTANCE,
   CAMERA_FOV,
   CAMERA_TARGET_HEIGHT,
+  CHARGE_PAD_POSITIONS,
   DETONATION_RADIUS,
   DRONE_CAMERA_DISTANCE,
   DRONE_CAMERA_HEIGHT,
@@ -76,7 +77,7 @@ async function boot(): Promise<void> {
   const view = new View();
   const input = new Input(view.renderer.domElement);
 
-  new Arena(physics, view.scene);
+  const arena = new Arena(physics, view.scene);
   const runner = new Runner(physics, view.scene);
   const drone = new Drone(physics, view.scene);
   const testCube = new TestCube(physics, view.scene);
@@ -323,7 +324,22 @@ async function boot(): Promise<void> {
     physics.advance(frameDelta);
 
     runner.render(physics.alpha, frameDelta);
-    drone.render(physics.alpha, frameDelta, fuse.telegraphProgress);
+    drone.render(physics.alpha, frameDelta, fuse.telegraphProgress, fuse.charge);
+    arena.render(frameDelta);
+
+    // Pad colours are the board state at a glance: green free, red core-blocked,
+    // blue drone docked, grey sabotaged.
+    const dockedPad = fuse.pad;
+    const sabotaged = new Set(hazards.disabledPadIndices());
+    for (let i = 0; i < CHARGE_PAD_POSITIONS.length; i += 1) {
+      const pad = CHARGE_PAD_POSITIONS[i]!;
+      const blocked = !objective.availablePads().some((free) => free[0] === pad[0] && free[1] === pad[1]);
+      const docked = fuse.state === 'recharging' && dockedPad?.[0] === pad[0] && dockedPad[1] === pad[1];
+      arena.setPadState(
+        i,
+        sabotaged.has(i) ? 'sabotaged' : docked ? 'docked' : blocked ? 'blocked' : 'available',
+      );
+    }
     testCube.render(physics.alpha);
     hazards.render(physics.alpha, frameDelta, runner);
     gremlin.render(frameDelta);
@@ -338,7 +354,16 @@ async function boot(): Promise<void> {
     );
 
     const showFpv = pilot === 'drone' && fpvMode && !orbitMode;
-    fpv.update(frameDelta, drone.velocity, drone.yawRate, drone.throttleLevel, fuse.telegraphProgress, showFpv);
+    fpv.update(
+      frameDelta,
+      drone.velocity,
+      drone.yawRate,
+      drone.throttleLevel,
+      fuse.telegraphProgress,
+      showFpv,
+      drone.pitchAngle,
+      drone.rollAngle,
+    );
     fpvOverlay.setVisible(fpv.visible);
     if (fpv.visible) {
       fpvOverlay.update(
@@ -436,8 +461,14 @@ async function boot(): Promise<void> {
     }
 
     input.endFrame();
-    if (fpv.visible) fpv.render(view.scene);
-    else view.render();
+    if (fpv.visible) {
+      // Looking out of the drone, not at it.
+      drone.setBodyVisible(false);
+      fpv.render(view.scene);
+      drone.setBodyVisible(true);
+    } else {
+      view.render();
+    }
     requestAnimationFrame(frame);
   }
 

@@ -405,6 +405,26 @@ export const CONFETTI_COLORS = [
 
 /** unspecified. Emissive pulse on the drone body during the telegraph. */
 export const TELEGRAPH_COLOR = 0xff4d5e;
+/** unspecified. Size of the emissive battery gauge on the drone's body. */
+export const BATTERY_GAUGE_WIDTH = 0.62;
+export const BATTERY_GAUGE_HEIGHT = 0.16;
+
+/**
+ * Charge pad state colours (asset manifest, PROC, P0):
+ * green available, red core-blocked, blue drone docked, grey sabotaged.
+ */
+export const PAD_COLOR_AVAILABLE = 0x7fd4a8;
+export const PAD_COLOR_BLOCKED = 0xff6b7a;
+export const PAD_COLOR_DOCKED = 0x8ab6ff;
+export const PAD_COLOR_SABOTAGED = 0x9aa2a8;
+/** Pad ring rotation, so an active pad reads as live (manifest, PROC, P1). */
+export const PAD_RING_SPIN = 0.5;
+
+/** Six runner colourways, tinted per player index (manifest, PROC, P0). */
+export const RUNNER_COLORWAYS = [
+  0xf28f8f, 0x8fd0f2, 0xa8e6a3, 0xffd98a, 0xd4a6f2, 0xf2b48f,
+] as const;
+
 /** unspecified. Battery gauge colours, readable across the arena (phase 10). */
 export const BATTERY_COLOR_FULL = 0x7fd4a8;
 export const BATTERY_COLOR_LOW = 0xffd166;
@@ -673,8 +693,27 @@ export const FPV_FOV = 90;
 /** Hold longer than this to peek; a shorter tap latches the toggle. */
 export const FPV_TOGGLE_HOLD_MS = 400;
 export const FPV_TRANSITION_MS = 180;
-export const FPV_SHAKE_VELOCITY_MULT = 0.02;
-export const FPV_SHAKE_RPM_MULT = 0.008;
+/**
+ * DIALLED DOWN BY THE DIRECTOR, twice. The module's values put a visible buzz
+ * on the feed; these are roughly a quarter of that, so the camera reads as
+ * mounted on a plastic object without making the picture hard to watch.
+ */
+export const FPV_SHAKE_VELOCITY_MULT = 0.005;
+export const FPV_SHAKE_RPM_MULT = 0.002;
+/** Shake frequency. Lower reads as a wobble; higher reads as a vibration. */
+export const FPV_SHAKE_HZ = 6.5;
+/**
+ * How much of the drone's BODY TILT the camera inherits.
+ *
+ * The module says the camera is hard-parented with no stabilisation, and 1.0
+ * is that. The director asked twice for a calmer feed, and body tilt (up to
+ * TILT_MAX, 25 degrees) is by far the biggest contributor -- much more than the
+ * shake. This softens it while keeping every bounce and bonk legible. Set to
+ * 1.0 to restore the module's literal behaviour.
+ */
+export const FPV_TILT_INHERIT = 0.3;
+/** Rolling-shutter skew ceiling. Lower if fast turns read as too smeary. */
+export const FPV_MAX_SKEW = 0.05;
 export const FPV_AUDIO_CROSSFADE_MS = 200;
 
 /**
