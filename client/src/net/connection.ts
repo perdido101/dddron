@@ -1,6 +1,6 @@
 import { Client, type Room } from 'colyseus.js';
 
-import { CLIENT_SEND_HZ, makeRoomCode } from '@shared/constants';
+import { CLIENT_SEND_HZ, RUN_SPEED, makeRoomCode } from '@shared/constants';
 
 /** A snapshot of one networked player, as the renderer needs it. */
 export interface RemotePlayer {
@@ -71,6 +71,8 @@ export class Connection {
   private sendTimer = 0;
   private sequence = 0;
   private lastInteract = false;
+  private pingTimer = 0;
+  private readonly rtts: number[] = [];
 
   get connected(): boolean {
     return this.room !== null && this.error === null;
@@ -110,6 +112,12 @@ export class Connection {
       room.onMessage('emp', () => this.onEmp?.());
       // Registered so colyseus.js does not warn; phase 9 renders this properly.
       room.onMessage('roundEnd', () => undefined);
+      room.onMessage('pong', (sent: number) => {
+        // Keep a short rolling window: one bad sample should not dominate the
+        // reading a player sees mid-round.
+        this.rtts.push(Date.now() - sent);
+        if (this.rtts.length > RTT_SAMPLES) this.rtts.shift();
+      });
 
       room.onLeave((code) => {
         // A clean error beats a frozen world: the client keeps rendering and
@@ -160,12 +168,36 @@ export class Connection {
       this.lastInteract = interacting;
     }
 
+    this.pingTimer += frameDelta;
+    if (this.pingTimer >= PING_INTERVAL) {
+      this.pingTimer = 0;
+      room.send('ping', Date.now());
+    }
+
     this.sendTimer += frameDelta;
     const interval = 1 / CLIENT_SEND_HZ;
     if (this.sendTimer < interval) return;
     this.sendTimer = 0;
     this.sequence += 1;
     room.send('move', { x: self.x, y: self.y, z: self.z, yaw: self.yaw, seq: this.sequence });
+  }
+
+  /** Median round-trip time in ms, or null before the first pong. */
+  get rtt(): number | null {
+    if (this.rtts.length === 0) return null;
+    const sorted = [...this.rtts].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)] ?? null;
+  }
+
+  /**
+   * How far the server's view of us can lag at the current RTT, in metres.
+   * Half the RTT plus one send interval, at full running speed — the honest
+   * upper bound on "died past where my screen showed me".
+   */
+  get positionLagMetres(): number | null {
+    const rtt = this.rtt;
+    if (rtt === null) return null;
+    return (rtt / 2 / 1000 + 1 / CLIENT_SEND_HZ) * RUN_SPEED;
   }
 
   /** Current server state, or null offline. */
@@ -229,6 +261,10 @@ export class Connection {
     this.room = null;
   }
 }
+
+/** Seconds between pings, and how many samples the median is taken over. */
+const PING_INTERVAL = 1;
+const RTT_SAMPLES = 9;
 
 /**
  * Where to connect. Environment-driven with a query-string override, so there

@@ -94,6 +94,13 @@ export class GameRoom extends Room<GameState> {
       player.yaw = message.yaw;
     });
 
+    // Ping echo: the client stamps a time and we bounce it straight back, so
+    // every player can read their own true RTT during a playtest. Costs one
+    // tiny message and touches no state.
+    this.onMessage('ping', (client, sent: number) => {
+      client.send('pong', sent);
+    });
+
     this.onMessage('interact', (client, held: boolean) => {
       if (held) this.interacting.add(client.sessionId);
       else this.interacting.delete(client.sessionId);

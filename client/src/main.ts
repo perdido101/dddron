@@ -456,6 +456,8 @@ async function boot(): Promise<void> {
     overlay.setExtraLines([
       `piloting     ${orbitMode ? 'free cam (debug)' : pilot}`,
       `network      ${net.connected ? `online (${net.sessionId.slice(0, 6)})` : net.error ?? 'offline — single player'}`,
+      `latency      ${net.rtt === null ? '—' : `${net.rtt} ms RTT · server sees you up to ` +
+        `${net.positionLagMetres?.toFixed(2)} m behind (blast radius ${DETONATION_RADIUS})`}`,
       `sim clock    ${(physics.totalSteps * FIXED_TIMESTEP).toFixed(2)}s  (${physics.totalSteps} steps)`,
       `fuse         ${fuse.state}  cycle ${fuse.cycle + 1}  charge ${(fuse.charge * 100).toFixed(1)}%` +
         `  ${fuse.secondsRemaining.toFixed(1)}s left`,
