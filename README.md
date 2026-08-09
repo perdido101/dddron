@@ -99,11 +99,14 @@ Other scripts: `npm run typecheck` (all workspaces, strict), `npm run build`
 | `G` | Gremlin hazard trigger (once per detonation cycle, when eliminated) |
 | `R` | Respawn the runner (revives after a detonation) |
 | `B` | Re-drop the phase 0 test cube |
+| `ESC` | Pause menu — settings, controls, and the way out of a game |
 | `\` | Dev console (dev builds only) |
 | `M` | Round metrics panel (dev builds only) |
 
 `C` only swaps bodies offline. Online the server assigns your role, and the
-lobby's role picker is how you ask for one.
+lobby's **THE DRONE** row is how you ask for one: *I FLY IT* takes the seat,
+*A BOT FLIES* hands it to a bot. A line underneath always names whoever is
+flying, so it is never a guess.
 
 ### Test tooling
 
