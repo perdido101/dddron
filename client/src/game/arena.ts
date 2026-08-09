@@ -5,6 +5,11 @@ import {
   ARENA_CEILING,
   ARENA_HALF,
   ARENA_SIZE,
+  BARN,
+  BARN_DOOR_HEIGHT,
+  BARN_DOOR_WIDTH,
+  BARN_ROOF_THICKNESS,
+  BARN_WALL_THICKNESS,
   CEILING_THICKNESS,
   CHARGE_PAD_HEIGHT,
   CHARGE_PAD_POSITIONS,
@@ -12,16 +17,28 @@ import {
   COLOR_CHARGE_PAD,
   COLOR_EMP_STATION,
   COLOR_GROUND,
+  COLOR_HEDGE,
   COLOR_PROP,
   COLOR_WALL,
+  COTTAGES,
+  CRATE_STAIRS,
+  CRATE_STEP_RISE,
+  CRATE_STEP_SIZE,
   CYLINDER_SEGMENTS,
   DECAL_Y_OFFSET,
   EMP_STATION_HEIGHT,
   EMP_STATION_POSITION,
   EMP_STATION_RADIUS,
+  FLOOR_AO_FALLOFF,
+  FLOOR_AO_STRENGTH,
+  FLOOR_AO_TEXTURE_SIZE,
   GROUND_THICKNESS,
-  LEDGE,
+  HEDGES,
+  HEDGE_HEIGHT,
+  HEDGE_THICKNESS,
   MARKER_RING_WIDTH,
+  MARKET_STALLS,
+  MOUND_STEPS,
   PAD_COLOR_AVAILABLE,
   PAD_COLOR_BLOCKED,
   PAD_COLOR_DOCKED,
@@ -36,17 +53,14 @@ import {
   PAD_SPIN_BLOCKED,
   PAD_SPIN_DOCKED,
   PAD_SPIN_SABOTAGED,
-  FLOOR_AO_FALLOFF,
-  FLOOR_AO_STRENGTH,
-  FLOOR_AO_TEXTURE_SIZE,
-  PILLARS,
-  PLATFORM,
-  RAMPS,
-  RAMP_THICKNESS,
-  TUNNEL,
-  TUNNEL_ROOF_THICKNESS,
-  TUNNEL_WALL_THICKNESS,
+  STALL_HEIGHT,
+  STALL_SIZE,
+  STONE_WALLS,
+  STONE_WALL_HEIGHT,
+  STONE_WALL_THICKNESS,
   WALL_THICKNESS,
+  WINDMILL_RADIUS,
+  WINDMILL_TOP,
 } from '@shared/constants';
 
 import type { Physics } from '../engine/physics';
@@ -69,6 +83,7 @@ export class Arena {
 
   private readonly wallMaterial = new THREE.MeshLambertMaterial({ color: COLOR_WALL });
   private readonly propMaterial = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
+  private readonly hedgeMaterial = new THREE.MeshLambertMaterial({ color: COLOR_HEDGE });
 
   constructor(
     private readonly physics: Physics,
@@ -76,10 +91,10 @@ export class Arena {
   ) {
     this.buildGround();
     this.buildPerimeter();
-    this.buildPlatforms();
-    this.buildRamps();
-    this.buildPillars();
-    this.buildTunnel();
+    this.buildMound();
+    this.buildCottages();
+    this.buildBarn();
+    this.buildCover();
     this.buildMarkers();
   }
 
@@ -183,67 +198,139 @@ export class Arena {
     );
   }
 
-  private buildPlatforms(): void {
-    for (const [x, z, sizeX, sizeZ, topY] of [PLATFORM, LEDGE]) {
-      this.box(
-        { x, y: topY / 2, z },
-        { x: sizeX, y: topY, z: sizeZ },
-        this.propMaterial,
-      );
+  /**
+   * The windmill mound and tower (handoff 03, section 2): the EMP station is
+   * the windmill. Stepped discs keep it approachable from every side — each
+   * step is 0.3 m, under the runner's 0.4 m autostep — and the tower stands
+   * in the middle of the charge zone, so holding the station means standing
+   * exposed on the annulus around it.
+   */
+  private buildMound(): void {
+    for (const [radius, topY] of MOUND_STEPS) {
+      this.cylinder({ x: 0, y: topY / 2, z: 0 }, radius, topY, this.propMaterial, false);
+    }
+    const moundTop = MOUND_STEPS[MOUND_STEPS.length - 1]![1];
+    const height = WINDMILL_TOP - moundTop;
+    this.cylinder(
+      { x: 0, y: moundTop + height / 2, z: 0 },
+      WINDMILL_RADIUS,
+      height,
+      this.wallMaterial,
+    );
+  }
+
+  /**
+   * Cottages: solid greybox blocks with flat, walkable roofs in the 6-8 m
+   * band. Solid rather than hollow on purpose — session 6 is validating the
+   * LAYOUT (sightlines, alleys, roof access), and interiors on every cottage
+   * would multiply the surface area to test without changing any of that.
+   * The barn is the one traversable interior, below.
+   */
+  private buildCottages(): void {
+    for (const [x, z, sizeX, sizeZ, roofY] of COTTAGES) {
+      this.box({ x, y: roofY / 2, z }, { x: sizeX, y: roofY, z: sizeZ }, this.wallMaterial);
+    }
+
+    // Crate stairs: each stack rises CRATE_STEP_RISE per box, ending a
+    // jumpable gap below its roof. The boxes run from the ground up so the
+    // collider is one simple cuboid per step.
+    for (const [baseX, baseZ, stepX, stepZ, topY] of CRATE_STAIRS) {
+      const steps = Math.round(topY / CRATE_STEP_RISE);
+      for (let i = 0; i < steps; i += 1) {
+        const height = CRATE_STEP_RISE * (i + 1);
+        this.box(
+          // Highest step nearest the building, so the climb runs toward it.
+          {
+            x: baseX + stepX * (steps - 1 - i),
+            y: height / 2,
+            z: baseZ + stepZ * (steps - 1 - i),
+          },
+          { x: CRATE_STEP_SIZE, y: height, z: CRATE_STEP_SIZE },
+          this.propMaterial,
+        );
+      }
     }
   }
 
   /**
-   * Ramps are thin slabs tilted about their climb axis. Local +x is the climb
-   * direction; `yaw` rotates that direction into the world.
+   * The barn: four walls with two door openings and a walkable roof slab.
+   * The drone fits through the doors with ~1.2 m to spare on each side of a
+   * 1.1 m body, which is exactly the "can enter but must slow down" the
+   * handoff asks for; a runner walks in without breaking stride.
    */
-  private buildRamps(): void {
-    for (const [x, z, run, width, rise, yaw] of RAMPS) {
-      const pitch = Math.atan2(rise, run);
-      const slopeLength = Math.hypot(run, rise);
-      const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, pitch, 'YZX'));
-      // Drop the slab by half its thickness measured vertically, so the WALKING
-      // SURFACE meets the floor at the foot and the platform top at the head.
-      // Lifting instead leaves a step at the foot that autostep cannot clear,
-      // which silently walls the ramp off.
-      const verticalDrop = RAMP_THICKNESS / 2 / Math.cos(pitch);
+  private buildBarn(): void {
+    const [x, z, sizeX, sizeZ, wallTop] = BARN;
+    const t = BARN_WALL_THICKNESS;
+    const doorW = BARN_DOOR_WIDTH;
+    const doorH = BARN_DOOR_HEIGHT;
+
+    // North and south walls: solid.
+    this.box(
+      { x, y: wallTop / 2, z: z - sizeZ / 2 + t / 2 },
+      { x: sizeX, y: wallTop, z: t },
+      this.wallMaterial,
+    );
+    this.box(
+      { x, y: wallTop / 2, z: z + sizeZ / 2 - t / 2 },
+      { x: sizeX, y: wallTop, z: t },
+      this.wallMaterial,
+    );
+
+    // East and west walls each carry a centred door: two piers plus a lintel.
+    for (const side of [-1, 1]) {
+      const wallX = x + (side * (sizeX - t)) / 2;
+      const pierLength = (sizeZ - doorW) / 2;
+      for (const pierSide of [-1, 1]) {
+        this.box(
+          { x: wallX, y: wallTop / 2, z: z + (pierSide * (doorW + pierLength)) / 2 },
+          { x: t, y: wallTop, z: pierLength },
+          this.wallMaterial,
+        );
+      }
       this.box(
-        { x, y: rise / 2 - verticalDrop, z },
-        { x: slopeLength, y: RAMP_THICKNESS, z: width },
-        this.propMaterial,
-        rotation,
+        { x: wallX, y: doorH + (wallTop - doorH) / 2, z },
+        { x: t, y: wallTop - doorH, z: doorW },
+        this.wallMaterial,
       );
     }
+
+    // Roof slab: walkable from the hay-bale stair.
+    this.box(
+      { x, y: wallTop + BARN_ROOF_THICKNESS / 2, z },
+      { x: sizeX, y: BARN_ROOF_THICKNESS, z: sizeZ },
+      this.propMaterial,
+    );
   }
 
-  private buildPillars(): void {
-    for (const [x, z, radius, height] of PILLARS) {
-      this.cylinder({ x, y: height / 2, z }, radius, height, this.propMaterial);
-    }
-  }
-
-  /** Two side walls plus a roof slab. Local +x runs along the tunnel. */
-  private buildTunnel(): void {
-    const [x, z, length, width, clearance, yaw] = TUNNEL;
-    const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0));
-    const offset = new THREE.Vector3();
-
-    for (const side of [-1, 1]) {
-      offset.set(0, 0, (side * (width + TUNNEL_WALL_THICKNESS)) / 2).applyQuaternion(rotation);
+  /** Stone walls, hedgerows and market stalls: partial cover, all hop-able. */
+  private buildCover(): void {
+    for (const [x, z, length, yaw] of STONE_WALLS) {
+      const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0));
       this.box(
-        { x: x + offset.x, y: clearance / 2, z: z + offset.z },
-        { x: length, y: clearance, z: TUNNEL_WALL_THICKNESS },
+        { x, y: STONE_WALL_HEIGHT / 2, z },
+        { x: length, y: STONE_WALL_HEIGHT, z: STONE_WALL_THICKNESS },
         this.wallMaterial,
         rotation,
       );
     }
-
-    this.box(
-      { x, y: clearance + TUNNEL_ROOF_THICKNESS / 2, z },
-      { x: length, y: TUNNEL_ROOF_THICKNESS, z: width + TUNNEL_WALL_THICKNESS * 2 },
-      this.propMaterial,
-      rotation,
-    );
+    for (const [x, z, length, yaw] of HEDGES) {
+      const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0));
+      this.box(
+        { x, y: HEDGE_HEIGHT / 2, z },
+        { x: length, y: HEDGE_HEIGHT, z: HEDGE_THICKNESS },
+        this.hedgeMaterial,
+        rotation,
+      );
+    }
+    for (const [x, z, yaw] of MARKET_STALLS) {
+      const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, yaw, 0));
+      this.box(
+        { x, y: STALL_HEIGHT / 2, z },
+        { x: STALL_SIZE, y: STALL_HEIGHT, z: STALL_SIZE },
+        this.propMaterial,
+        rotation,
+      );
+    }
   }
 
   /**

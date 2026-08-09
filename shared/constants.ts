@@ -63,8 +63,12 @@ export const NET_INTERPOLATION_LAG = 0.08;
 // ARENA
 // ---------------------------------------------------------------------------
 
-/** 60 x 60 m, walled, centred on the origin. */
-export const ARENA_SIZE = 60;
+/**
+ * 80 x 80 m village arena (handoff 03, section 3). Grew from 60 x 60 — +78%
+ * area, which is a balance change, not a cosmetic one; the section 3 constant
+ * changes (drone speed, fuse, round time) exist to pay for it.
+ */
+export const ARENA_SIZE = 80;
 /** Ceiling height. Caps the drone's playable volume from above. */
 export const ARENA_CEILING = 14;
 /** derived. Half-extent, i.e. the wall line on each axis. */
@@ -79,51 +83,129 @@ export const CHARGE_PAD_RADIUS = 2.0;
 export const CHARGE_PAD_HEIGHT = 0.14;
 
 /**
- * unspecified positions satisfying the brief's constraint: an 18 m
- * circumradius triangle, giving 31.2 m between any two pads.
+ * Handoff 03: deliberately UNEVEN distances from the windmill — one close
+ * (~15 m), two far (~30 m) — so which core to take first is a real decision.
+ * Inter-pad spacing stays over the brief's 15 m floor (39.6 / 54 / 39.6 m).
  */
 export const CHARGE_PAD_POSITIONS = [
-  [0.0, -18.0],
-  [15.6, 9.0],
-  [-15.6, 9.0],
+  [0.0, -15.0],
+  [27.0, 14.0],
+  [-27.0, 14.0],
 ] as const;
 
-/** Arena centre. */
+/** Arena centre: the windmill IS the EMP station (handoff 03, section 2). */
 export const EMP_STATION_COUNT = 1;
 export const EMP_STATION_POSITION = [0.0, 0.0] as const;
-/** unspecified. Zone runners must stand in to charge the EMP (phase 4). */
-export const EMP_STATION_RADIUS = 3.0;
+/**
+ * Zone runners must stand in to charge the EMP. Widened with the windmill
+ * tower in the middle of it: the standable part is the annulus between the
+ * tower wall and this radius, and it has to hold three bodies comfortably.
+ */
+export const EMP_STATION_RADIUS = 4.0;
 export const EMP_STATION_HEIGHT = 0.18;
 
-/**
- * unspecified greybox layout. Raised platform: [x, z, sizeX, sizeZ, topY].
- */
-export const PLATFORM = [18.0, -12.0, 16.0, 14.0, 3.0] as const;
-/** unspecified. Low ledge reached by the west ramp: [x, z, sizeX, sizeZ, topY]. */
-export const LEDGE = [-24.0, 14.0, 10.0, 10.0, 2.2] as const;
+// ---------------------------------------------------------------------------
+// GREYBOX VILLAGE LAYOUT (handoff 03, session 6)
+//
+// Primitives only — session 8 swaps meshes onto this layout after it has been
+// validated, exactly as the original arena was validated before its art.
+//
+// The layout rule that shaped every position: the straight lines between the
+// runner spawn, the windmill, and each pad stay unobstructed. Bots steer in
+// straight lines with no pathfinding, and a building squarely on a working
+// route would deadlock the loop; buildings break DIAGONAL sightlines instead,
+// which is what the handoff wants from them.
+// ---------------------------------------------------------------------------
 
 /**
- * unspecified. Ramps: [x, z, runLength, width, riseY, yawRadians].
- * Yaw 0 means the ramp climbs along +x; PI/2 climbs along +z.
+ * The windmill mound: stepped discs so it is approachable from all sides.
+ * Each step is 0.3 m — under the runner's 0.4 m autostep. [radius, topY].
  */
-export const RAMPS = [
-  [7.0, -12.0, 6.0, 6.0, 3.0, 0.0],
-  [-24.0, 5.0, 8.0, 6.0, 2.2, -Math.PI / 2],
+export const MOUND_STEPS = [
+  [8.0, 0.3],
+  [5.5, 0.6],
+] as const;
+/** Windmill tower: radius, and the height its cap reaches. */
+export const WINDMILL_RADIUS = 1.8;
+export const WINDMILL_TOP = 10.0;
+
+/**
+ * Cottages: [x, z, sizeX, sizeZ, roofY]. Flat-topped greybox; rooftops sit in
+ * the handoff's 6-8 m band so the drone clears them inside ALTITUDE_MAX but
+ * remains swattable from up there. Clusters NW/NE with alleys, singles E/W/SE.
+ */
+export const COTTAGES = [
+  [-17.0, -19.0, 6.0, 5.0, 6.2],
+  [-11.0, -25.0, 5.0, 5.0, 6.8],
+  [17.0, -19.0, 6.0, 5.0, 6.2],
+  [11.0, -25.0, 5.0, 5.0, 7.4],
+  [-27.0, 8.0, 6.0, 6.0, 6.0],
+  [26.0, -2.0, 6.0, 6.0, 6.0],
+  [16.0, 26.0, 5.0, 5.0, 6.4],
 ] as const;
 
-/** unspecified. Pillars: [x, z, radius, height]. */
-export const PILLARS = [
-  [-8.0, -14.0, 1.6, 8.0],
-  [8.0, 14.0, 1.6, 8.0],
-] as const;
+/**
+ * The barn: [x, z, sizeX, sizeZ, wallTopY]. Hollow — walls with two door
+ * openings and a roof slab, so the drone can fly the interior but has to slow
+ * down to thread the doors. Roof slab sits on the walls (walkable at ~6 m).
+ */
+export const BARN = [-22.0, -6.0, 8.0, 10.0, 5.6] as const;
+export const BARN_WALL_THICKNESS = 0.4;
+export const BARN_ROOF_THICKNESS = 0.4;
+/** Door openings: width and height. Drone diameter is 1.1 m — it fits, slowly. */
+export const BARN_DOOR_WIDTH = 3.5;
+export const BARN_DOOR_HEIGHT = 3.6;
 
 /**
- * unspecified. Low tunnel: [x, z, length, width, clearanceY, yawRadians].
- * Clearance admits a runner comfortably; the drone must commit to fly it.
+ * Crate stairs to rooftops: [baseX, baseZ, stepX, stepZ, topY]. Each entry is
+ * one stack of ascending boxes ending a jumpable 1.2 m below its cottage roof
+ * (jump apex is 1.53 m). Placed against a cottage or barn face.
  */
-export const TUNNEL = [-12.0, -8.0, 16.0, 6.0, 2.6, 0.0] as const;
-export const TUNNEL_ROOF_THICKNESS = 0.6;
-export const TUNNEL_WALL_THICKNESS = 0.5;
+export const CRATE_STAIRS = [
+  // East cottage (26,-2): stack along the south face, tallest crate FLUSH
+  // against the wall. Verified the hard way: a 0.85 m gap between crate and
+  // wall turns the final 1.2 m rise into a long jump that clips the roof lip.
+  [26.0, 1.85, 1.7, 0.0, 4.8],
+  // NW cottage (-17,-19): along its east face, flush.
+  [-13.15, -19.0, 0.0, 1.7, 5.0],
+  // Barn: hay bales up the south face, flush.
+  [-22.0, -0.15, 1.7, 0.0, 4.8],
+] as const;
+/** Footprint of one crate/hay step, and the rise per step. */
+export const CRATE_STEP_SIZE = 1.7;
+export const CRATE_STEP_RISE = 1.2;
+
+/** Low stone walls: [x, z, length, yawRadians]. Partial cover, hop-over-able. */
+export const STONE_WALLS = [
+  [-14.0, 8.0, 8.0, 0.0],
+  [14.0, 8.0, 8.0, 0.0],
+  [0.0, -26.0, 10.0, 0.0],
+] as const;
+export const STONE_WALL_HEIGHT = 0.9;
+export const STONE_WALL_THICKNESS = 0.5;
+
+/** Hedgerows: [x, z, length, yawRadians]. Taller cover — blocks sight, not shot. */
+export const HEDGES = [
+  [-20.0, 26.0, 8.0, 0.5],
+  [22.0, 20.0, 8.0, -0.9],
+  [-22.0, -16.0, 7.0, 1.2],
+  [22.0, -14.0, 7.0, -1.2],
+] as const;
+export const HEDGE_HEIGHT = 1.4;
+export const HEDGE_THICKNESS = 0.9;
+
+/**
+ * Market stalls: [x, z, yawRadians]. The market square is the open ground
+ * between the mound and the spawn — the dangerous crossing. Stalls dress its
+ * edges without blocking the spawn-to-windmill lane.
+ */
+export const MARKET_STALLS = [
+  [-9.0, 16.0, 0.3],
+  [9.0, 16.0, -0.3],
+  [-4.0, 21.0, 0.1],
+] as const;
+export const STALL_SIZE = 1.8;
+export const STALL_HEIGHT = 2.2;
 
 /** unspecified. Structural thicknesses for the greybox shell. */
 export const GROUND_THICKNESS = 1.0;
@@ -173,7 +255,7 @@ export const CONTROLLER_AUTOSTEP_HEIGHT = 0.4;
 export const CONTROLLER_AUTOSTEP_MIN_WIDTH = 0.2;
 export const CONTROLLER_SNAP_TO_GROUND = 0.3;
 /** unspecified. Runner spawn point (capsule centre). */
-export const RUNNER_SPAWN = [0.0, 2.0, 12.0] as const;
+export const RUNNER_SPAWN = [0.0, 2.0, 32.0] as const;
 /** unspecified. Downward bias applied while grounded so the controller sticks. */
 export const STICK_TO_GROUND_SPEED = 2.0;
 /**
@@ -246,8 +328,10 @@ export const MOUSE_SENSITIVITY = 0.0024;
 // DRONE (phase 2)
 // ---------------------------------------------------------------------------
 
-export const DRONE_MAX_SPEED = 9.0;
-export const DRONE_ACCELERATION = 8.0;
+/** Handoff 03: 9.0 -> 11.0 so the drone can still pressure an 80 m map. */
+export const DRONE_MAX_SPEED = 11.0;
+/** Handoff 03: 8.0 -> 9.0, same reason as the speed bump. */
+export const DRONE_ACCELERATION = 9.0;
 /**
  * SACRED CONSTRAINT 1: hard cap 0.8. Above that the drone can park on a
  * target and hold position, and the game dies.
@@ -291,7 +375,7 @@ export const PROP_WASH_DOWNFORCE = 0.35;
 export const DRONE_RETURN_SPEED_MULT = 0.5;
 
 /** unspecified. Drone launch point. */
-export const DRONE_SPAWN = [0.0, 5.0, -6.0] as const;
+export const DRONE_SPAWN = [0.0, 6.0, -26.0] as const;
 /**
  * unspecified. Vertical acceleration from Space / Shift. The drone cancels its
  * own weight first (a toy drone that sinks the moment you stop holding Space is
@@ -356,13 +440,13 @@ export const DRONE_INERT_TIME = 2.0;
  * Fuse length in seconds per detonation cycle; index 5+ clamps to the last.
  * Highest-leverage balance lever in the game — tune this first.
  *
- * Director's call: run the whole fuse 1.5x faster than the brief's
- * [60, 45, 35, 28, 22]. Detonations are the drone's only offence and the
- * clock everything else is paced against, so this is not a small change —
- * it roughly halves the time a runner has between blasts by the fourth
- * cycle, and it shortens every window the objective has to fit inside.
+ * Handoff 03 sets [70, 52, 40, 32, 25] for the 80 x 80 map and flags them as
+ * starting guesses, to be retuned from telemetry. NOTE: this supersedes the
+ * director's earlier "1.5x faster" call ([40, 30, 23, 19, 15]), which was
+ * made for the 60 x 60 arena. If detonations now feel too rare, this is the
+ * first number to revisit — and the round metrics say so either way.
  */
-export const FUSE_BY_CYCLE = [40, 30, 23, 19, 15] as const;
+export const FUSE_BY_CYCLE = [70, 52, 40, 32, 25] as const;
 
 export const DETONATION_RADIUS = 4.0;
 /** Last 3 s: drone flashes red, prop pitch rises. */
@@ -372,7 +456,8 @@ export const RECHARGE_TIME = 8.0;
 /** Grounded, then must fly to a pad. Never lethal (sacred constraint 4). */
 export const KNOCKDOWN_RECOVERY = 6.0;
 /** Volume and pitch scale with distance. */
-export const PROP_AUDIBLE_RADIUS = 15.0;
+/** Handoff 03: 15 -> 20 m. Buildings make locating by ear the key mechanic. */
+export const PROP_AUDIBLE_RADIUS = 20.0;
 
 /** unspecified. Telegraph pulse rate at the start and end of the window. */
 export const TELEGRAPH_PULSE_HZ_START = 2.0;
@@ -534,7 +619,8 @@ export const AI_CHASE_RADIUS = 20.0;
 /** unspecified. Distance at which a patrol waypoint counts as reached. */
 export const AI_WAYPOINT_RADIUS = 4.0;
 /** unspecified. Altitude the scripted drone tries to hold while patrolling. */
-export const AI_PATROL_ALTITUDE = 4.0;
+/** Above the 6-8 m rooftops, so the dumb patrol does not headbutt houses. */
+export const AI_PATROL_ALTITUDE = 9.0;
 /** unspecified. Altitude it drops to when hunting, so its blast can reach. */
 export const AI_ATTACK_ALTITUDE = 1.4;
 /**
@@ -546,12 +632,12 @@ export const AI_ATTACK_ALTITUDE = 1.4;
  * where the cores are is pressure; sitting on the station is a lock-out.
  */
 export const AI_WAYPOINTS = [
-  [0.0, -18.0],
-  [17.0, -6.0],
-  [15.6, 9.0],
-  [0.0, 15.0],
-  [-15.6, 9.0],
-  [-17.0, -6.0],
+  [0.0, -22.0],
+  [18.0, -10.0],
+  [24.0, 10.0],
+  [0.0, 22.0],
+  [-24.0, 10.0],
+  [-18.0, -10.0],
 ] as const;
 
 /** derived. Runners required in the station zone for the current alive count. */
@@ -571,14 +657,18 @@ export const SWAT_COOLDOWN = 1.5;
 /** unspecified. Half-angle of the swat arc. */
 export const SWAT_ARC = 1.2;
 
-/** 2 ceiling fans, always on. Drone is flung; runners are unaffected. */
-export const FAN_COUNT = 2;
-/** unspecified. */
-export const FAN_RADIUS = 4.0;
+/**
+ * Rotor hazards (handoff 03, section 2): the windmill's sails sweeping low
+ * over the station, plus two barn extractor fans. [x, z, hubY, radius].
+ * The sails are the reason the drone's best camping spot — right over the
+ * EMP zone — is also the most dangerous place it can sit.
+ */
+export const FAN_COUNT = 3;
 export const FAN_FORCE = 46.0;
 export const FAN_POSITIONS = [
-  [-18.0, -18.0],
-  [14.0, 18.0],
+  [0.0, 0.0, 8.6, 5.5],
+  [-24.0, -8.0, 4.6, 2.0],
+  [-20.0, -4.0, 4.6, 2.0],
 ] as const;
 
 /** 3 static hanging obstacles. Drone passing through is slowed 60% for 2 s. */
@@ -587,9 +677,9 @@ export const NET_SLOW_FACTOR = 0.4;
 export const NET_SLOW_TIME = 2.0;
 /** unspecified. Net positions: [x, z, width, yawRadians]. */
 export const NET_POSITIONS = [
-  [-4.0, -24.0, 7.0, 0.0],
-  [24.0, 4.0, 6.0, Math.PI / 2],
-  [-16.0, 22.0, 7.0, Math.PI / 4],
+  [-14.0, -22.0, 6.0, Math.PI / 4],
+  [14.0, -22.0, 6.0, -Math.PI / 4],
+  [0.0, 12.0, 8.0, 0.0],
 ] as const;
 
 /** unspecified. Loose props: pick up and throw, deliberately inaccurate. */
@@ -620,7 +710,8 @@ export const GREMLIN_EXCLUSION_RADIUS = 2.5;
 // ROUND / MATCH (phase 9)
 // ---------------------------------------------------------------------------
 
-export const ROUND_TIME = 180;
+/** Handoff 03: 180 -> 210 s. Core runs are longer on the 80 m map. */
+export const ROUND_TIME = 210;
 /** Match length is max(5, playerCount). */
 export const ROUNDS_PER_MATCH_MIN = 5;
 export const MIN_PLAYERS = 3;
@@ -670,6 +761,8 @@ export const COLOR_SKY = 0xbfe4f2;
 export const COLOR_GROUND = 0xd8d3c6;
 export const COLOR_WALL = 0xc7c0b2;
 export const COLOR_PROP = 0xb9c6cf;
+/** Hedgerow green — greybox, but a hedge that is not green reads as a wall. */
+export const COLOR_HEDGE = 0x8fbf7f;
 export const COLOR_CHARGE_PAD = 0x7fd4a8;
 export const COLOR_EMP_STATION = 0x9ba8f0;
 export const COLOR_RUNNER = 0xf28f8f;
@@ -701,7 +794,7 @@ export const HEAD_TURN_EASE = 0.09;
  */
 export const VILLAGE_MODULE = 1.0;
 /** Radius the ring of houses sits on, outside the arena walls. */
-export const VILLAGE_HOUSE_RING = 34.0;
+export const VILLAGE_HOUSE_RING = 50.0;
 export const VILLAGE_TREE_COUNT = 54;
 export const VILLAGE_PROP_COUNT = 22;
 /** Tufts of grass, flowers and pebbles inside the play area. */
@@ -787,13 +880,13 @@ export const BATTERY_HALO_PULSE_HZ = 2.4;
  * Fog is a horizon softener only. The arena diagonal is ~85 m and runners have
  * to spot the drone clear across it, so fog must not start biting inside that.
  */
-export const FOG_NEAR = 90;
-export const FOG_FAR = 300;
+export const FOG_NEAR = 125;
+export const FOG_FAR = 400;
 export const HEMI_LIGHT_INTENSITY = 0.85;
 export const SUN_LIGHT_INTENSITY = 1.7;
 export const SUN_POSITION = [26.0, 40.0, 18.0] as const;
 export const SHADOW_MAP_SIZE = 2048;
-export const SHADOW_CAMERA_EXTENT = 42;
+export const SHADOW_CAMERA_EXTENT = 56;
 export const SHADOW_BIAS = -0.0006;
 /** Shadow frustum depth. Starting at the default near plane wastes precision. */
 export const SHADOW_CAMERA_NEAR = 1;

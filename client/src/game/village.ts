@@ -3,10 +3,12 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 import {
   ARENA_HALF,
+  BARN,
   CHARGE_PAD_POSITIONS,
   CHARGE_PAD_RADIUS,
+  COTTAGES,
   EMP_STATION_POSITION,
-  EMP_STATION_RADIUS,
+  MOUND_STEPS,
   RUNNER_SPAWN,
   VILLAGE_GRASS_COUNT,
   VILLAGE_HOUSE_RING,
@@ -314,10 +316,22 @@ function isClear(x: number, z: number): boolean {
   for (const [px, pz] of CHARGE_PAD_POSITIONS) {
     if (Math.hypot(x - px, z - pz) < CHARGE_PAD_RADIUS + 2.5) return false;
   }
-  if (Math.hypot(x - EMP_STATION_POSITION[0], z - EMP_STATION_POSITION[1]) < EMP_STATION_RADIUS + 2.5) {
+  // The whole mound, not just the station zone: grass on the windmill's steps
+  // reads as the steps being soft ground rather than climbable.
+  const moundRadius = Math.max(...MOUND_STEPS.map(([radius]) => radius));
+  if (Math.hypot(x - EMP_STATION_POSITION[0], z - EMP_STATION_POSITION[1]) < moundRadius + 1.5) {
     return false;
   }
   if (Math.hypot(x - RUNNER_SPAWN[0], z - RUNNER_SPAWN[2]) < 6) return false;
+
+  // Building footprints, slightly inflated: a tuft clipping through a cottage
+  // wall is the kind of detail that makes a greybox read as broken.
+  for (const [bx, bz, sizeX, sizeZ] of COTTAGES) {
+    if (Math.abs(x - bx) < sizeX / 2 + 1 && Math.abs(z - bz) < sizeZ / 2 + 1) return false;
+  }
+  if (Math.abs(x - BARN[0]) < BARN[2] / 2 + 1 && Math.abs(z - BARN[1]) < BARN[3] / 2 + 1) {
+    return false;
+  }
   return true;
 }
 

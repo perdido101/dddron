@@ -383,6 +383,8 @@ async function boot(): Promise<void> {
     (window as unknown as { __test?: object }).__test = {
       resetDrone: () => drone.resetForTest(),
       placeDrone: (x: number, y: number, z: number) => drone.placeAt(x, y, z),
+      moveRunner: (x: number, y: number, z: number) => runner.moveTo(x, y, z),
+      grounded: () => runner.grounded,
       dronePos: () => ({ x: drone.position.x, y: drone.position.y, z: drone.position.z }),
       runnerPos: () => ({ x: runner.position.x, y: runner.position.y, z: runner.position.z }),
       fly: (steps: { n: number; x: number; y: number; lift: number }[]) => {

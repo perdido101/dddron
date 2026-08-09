@@ -2,13 +2,11 @@ import RAPIER from '@dimforge/rapier3d-compat';
 import * as THREE from 'three';
 
 import {
-  ARENA_CEILING,
   CHARGE_PAD_POSITIONS,
   COLOR_CORE,
   COLOR_PROP,
   FAN_FORCE,
   FAN_POSITIONS,
-  FAN_RADIUS,
   NET_POSITIONS,
   NET_SLOW_FACTOR,
   NET_SLOW_TIME,
@@ -61,6 +59,8 @@ export class Hazards {
 
   private readonly throwables: Throwable[] = [];
   private readonly fans: THREE.Mesh[] = [];
+  /** Per-rotor sweep radius, parallel to `fans`. */
+  private readonly fanRadii: number[] = [];
   private readonly nets: { mesh: THREE.Mesh; x: number; z: number; width: number; yaw: number }[] = [];
 
   private swatTimer = 0;
@@ -93,15 +93,20 @@ export class Hazards {
 
   private buildFans(): void {
     const material = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
-    for (const [x, z] of FAN_POSITIONS) {
+    for (const [x, z, hubY, radius] of FAN_POSITIONS) {
+      // Handoff 03: rotors carry their own hub height and radius, because the
+      // windmill's sails sweep at 8.6 m over the mound while the barn's
+      // extractor fans sit under its 5.6 m roof. One ceiling constant cannot
+      // describe both.
       const blade = new THREE.Mesh(
-        new THREE.BoxGeometry(FAN_RADIUS * 2, FAN_BLADE_THICKNESS, FAN_RADIUS * 0.34),
+        new THREE.BoxGeometry(radius * 2, FAN_BLADE_THICKNESS, radius * 0.34),
         material,
       );
-      blade.position.set(x, ARENA_CEILING - FAN_DROP, z);
+      blade.position.set(x, hubY, z);
       blade.castShadow = true;
       this.scene.add(blade);
       this.fans.push(blade);
+      this.fanRadii.push(radius);
     }
   }
 
@@ -227,13 +232,19 @@ export class Hazards {
    * flies.
    */
   private applyFans(drone: Drone): void {
-    for (const blade of this.fans) {
+    for (let i = 0; i < this.fans.length; i += 1) {
+      const blade = this.fans[i]!;
+      const radius = this.fanRadii[i] ?? 0;
       const dx = drone.position.x - blade.position.x;
       const dz = drone.position.z - blade.position.z;
       const distance = Math.hypot(dx, dz);
-      if (distance > FAN_RADIUS || drone.position.y < ARENA_CEILING - FAN_REACH) continue;
+      // The rotor bites in a slab around its own hub height, not near a
+      // global ceiling: fly under the windmill's sails or over the barn fans
+      // and nothing happens, which is what makes the sail sweep a hazard the
+      // drone can play around rather than a region it can never enter.
+      if (distance > radius || Math.abs(drone.position.y - blade.position.y) > FAN_REACH) continue;
 
-      const falloff = 1 - distance / FAN_RADIUS;
+      const falloff = 1 - distance / radius;
       const outward = distance > 1e-3 ? 1 / distance : 0;
       drone.applyExternalForce(
         dx * outward * FAN_FORCE * falloff,
@@ -440,7 +451,6 @@ export class Hazards {
 
 /** unspecified presentation and tuning for the hazards. */
 const FAN_BLADE_THICKNESS = 0.18;
-const FAN_DROP = 0.6;
 /** How far below a fan its wash still reaches. */
 const FAN_REACH = 5.0;
 const FAN_DOWNWASH = 0.5;
@@ -449,7 +459,8 @@ const NET_HEIGHT = 3.4;
 const NET_GROUND_GAP = 0.6;
 const NET_THICKNESS = 0.6;
 const NET_OPACITY = 0.45;
-const THROWABLE_RING = 11.0;
+/** Scatter radius: the ground between the market and the pads. */
+const THROWABLE_RING = 18.0;
 const THROWABLE_DAMPING = 0.4;
 const PROP_PICKUP_RADIUS = 1.6;
 const PROP_CARRY_HEIGHT = 1.3;
