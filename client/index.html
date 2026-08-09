@@ -6,9 +6,30 @@
     <title>BUZZKILL</title>
     <link rel="icon" href="data:," />
     <style>
+      /*
+        Fredoka (SIL Open Font License 1.1), the manifest's P0 "heavy rounded
+        sans". Self-hosted rather than linked from Google's CDN: a party game
+        opened from a shared link should not have its type fall apart because
+        a network blocks fonts.googleapis.com, and one request we control
+        beats two we do not. Latin subset only, one variable file, 29 kB.
+
+        `swap` so the UI is readable immediately and simply restyles when the
+        font lands, instead of showing nothing for a beat.
+      */
+      @font-face {
+        font-family: 'Fredoka';
+        font-style: normal;
+        font-weight: 300 700;
+        font-display: swap;
+        src: url('./fonts/fredoka-latin.woff2') format('woff2');
+      }
       :root {
         color-scheme: light;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        /* Rounded sans for anything a player reads. */
+        font-family: 'Fredoka', 'Trebuchet MS', system-ui, sans-serif;
+        /* Monospace stays where columns have to line up: the debug overlay,
+           the metrics table and the FPV telemetry are all read as figures. */
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
       html,
       body {
@@ -24,6 +45,7 @@
         height: 100%;
       }
       #debug {
+        font-family: var(--mono);
         position: fixed;
         top: 10px;
         left: 10px;
@@ -120,7 +142,7 @@
         pointer-events: none;
         z-index: 11;
         color: #dff6ff;
-        font-family: ui-monospace, Menlo, Consolas, monospace;
+        font-family: var(--mono);
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
       }
       .fpv-corner {
@@ -317,6 +339,7 @@
       /* Dev console (handoff 02, session 4). Never present in a production
          build — main.ts does not construct it unless dev tools are enabled. */
       #devconsole {
+        font-family: var(--mono);
         position: fixed;
         top: 12px;
         right: 12px;
@@ -362,6 +385,7 @@
       .dev-readout { min-height: 14px; color: #7fd4a8; }
       /* Round metrics (handoff 02, session 3). Dev-only, like the console. */
       #roundsummary {
+        font-family: var(--mono);
         position: fixed;
         top: 12px;
         left: 12px;
