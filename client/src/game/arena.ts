@@ -26,7 +26,19 @@ import {
   PAD_COLOR_BLOCKED,
   PAD_COLOR_DOCKED,
   PAD_COLOR_SABOTAGED,
+  PAD_PULSE_AVAILABLE,
+  PAD_PULSE_BLOCKED,
+  PAD_PULSE_DEPTH,
+  PAD_PULSE_DOCKED,
+  PAD_PULSE_SABOTAGED,
   PAD_RING_SPIN,
+  PAD_SPIN_AVAILABLE,
+  PAD_SPIN_BLOCKED,
+  PAD_SPIN_DOCKED,
+  PAD_SPIN_SABOTAGED,
+  FLOOR_AO_FALLOFF,
+  FLOOR_AO_STRENGTH,
+  FLOOR_AO_TEXTURE_SIZE,
   PILLARS,
   PLATFORM,
   RAMPS,
@@ -50,6 +62,9 @@ export class Arena {
   /** One material per pad, so each can show its own state. */
   private readonly padMaterials: THREE.MeshLambertMaterial[] = [];
   private readonly padRings: THREE.Mesh[] = [];
+  /** Per-pad spin angle, since each state turns at its own rate. */
+  private readonly padSpins: number[] = [];
+  private readonly padStates: PadState[] = [];
   private ringClock = 0;
 
   private readonly wallMaterial = new THREE.MeshLambertMaterial({ color: COLOR_WALL });
@@ -132,7 +147,10 @@ export class Arena {
 
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(ARENA_SIZE, ARENA_SIZE),
-      new THREE.MeshLambertMaterial({ color: COLOR_GROUND }),
+      // Ambient occlusion baked into a runtime-generated map rather than a
+      // shipped texture: the walls darken the floor they meet, which is what
+      // stops a big flat plane reading as a big flat plane.
+      new THREE.MeshLambertMaterial({ color: COLOR_GROUND, map: floorAoTexture() }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
@@ -266,14 +284,38 @@ export class Arena {
         : state === 'sabotaged' ? PAD_COLOR_SABOTAGED
         : PAD_COLOR_AVAILABLE,
     );
-    const ring = this.padRings[index];
-    if (ring) (ring.material as THREE.MeshBasicMaterial).color.copy(material.color);
+    this.padStates[index] = state;
   }
 
-  /** Slow ring rotation, so a live pad never looks like a painted decal. */
+  /**
+   * Pad state, told twice: by hue and by movement.
+   *
+   * Hue alone fails the people it matters most to — roughly one player in
+   * twelve cannot separate the green and the red — and it also fails everyone
+   * at distance, where a small saturated decal desaturates toward the floor.
+   * Motion survives both: free pads turn slowly and steadily, a blocked pad
+   * stops dead and breathes, a docked one spins up hard, and a sabotaged one
+   * runs backwards and flickers.
+   */
   render(frameDelta: number): void {
-    this.ringClock += frameDelta * PAD_RING_SPIN;
-    for (const ring of this.padRings) ring.rotation.z = this.ringClock;
+    this.ringClock += frameDelta;
+    for (let i = 0; i < this.padRings.length; i += 1) {
+      const ring = this.padRings[i];
+      const base = this.padMaterials[i];
+      if (!ring || !base) continue;
+      const state = this.padStates[i] ?? 'available';
+
+      this.padSpins[i] = (this.padSpins[i] ?? 0) + frameDelta * PAD_RING_SPIN * SPIN_RATE[state];
+      ring.rotation.z = this.padSpins[i] ?? 0;
+
+      const hz = PULSE_RATE[state];
+      // A steady ring is the calm state; anything pulsing is asking to be read.
+      const pulse = hz === 0
+        ? 1
+        : 1 - PAD_PULSE_DEPTH * (0.5 - 0.5 * Math.cos(this.ringClock * Math.PI * 2 * hz));
+      const material = ring.material as THREE.MeshBasicMaterial;
+      material.color.copy(base.color).multiplyScalar(pulse);
+    }
   }
 
   private addRing(x: number, z: number, radius: number, color: number): THREE.Mesh {
@@ -286,4 +328,58 @@ export class Arena {
     this.scene.add(ring);
     return ring;
   }
+}
+
+const SPIN_RATE: Record<PadState, number> = {
+  available: PAD_SPIN_AVAILABLE,
+  blocked: PAD_SPIN_BLOCKED,
+  docked: PAD_SPIN_DOCKED,
+  sabotaged: PAD_SPIN_SABOTAGED,
+};
+
+const PULSE_RATE: Record<PadState, number> = {
+  available: PAD_PULSE_AVAILABLE,
+  blocked: PAD_PULSE_BLOCKED,
+  docked: PAD_PULSE_DOCKED,
+  sabotaged: PAD_PULSE_SABOTAGED,
+};
+
+/**
+ * Floor occlusion, generated once at runtime.
+ *
+ * A radial-ish falloff from the arena edges, drawn as a greyscale map that
+ * multiplies the floor colour. Nothing here is a shipped file — the asset
+ * manifest is explicit that anything expressible in code stays in code — and
+ * the whole thing is one 256×256 canvas built at boot.
+ */
+let floorAo: THREE.Texture | null = null;
+
+function floorAoTexture(): THREE.Texture {
+  if (floorAo) return floorAo;
+  const size = FLOOR_AO_TEXTURE_SIZE;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+  if (context) {
+    const image = context.createImageData(size, size);
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        // Distance from the nearest edge, normalised to the half-extent.
+        const edge = Math.min(x, y, size - 1 - x, size - 1 - y) / (size / 2);
+        // Darkest hard against a wall, clean by FLOOR_AO_FALLOFF inward.
+        const occlusion = 1 - FLOOR_AO_STRENGTH * (1 - Math.min(edge / FLOOR_AO_FALLOFF, 1));
+        const value = Math.round(occlusion * 255);
+        const i = (y * size + x) * 4;
+        image.data[i] = value;
+        image.data[i + 1] = value;
+        image.data[i + 2] = value;
+        image.data[i + 3] = 255;
+      }
+    }
+    context.putImageData(image, 0, 0);
+  }
+  floorAo = new THREE.CanvasTexture(canvas);
+  floorAo.colorSpace = THREE.SRGBColorSpace;
+  return floorAo;
 }

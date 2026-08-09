@@ -8,6 +8,7 @@ import {
   CARRY_SPEED,
   CEILING_BLOCK_EPSILON,
   COLOR_RUNNER,
+  RUNNER_COLORWAYS,
   COLOR_RUNNER_HEAD,
   CORE_DROP_PUSH,
   CONTROLLER_AUTOSTEP_HEIGHT,
@@ -74,6 +75,8 @@ export class Runner {
   /** Scales and leans about the feet; the root stays at the capsule centre. */
   private readonly pivot = new THREE.Group();
   private readonly figure = new THREE.Group();
+  /** Shared by the body and the facing marker, so a colourway tints both. */
+  private readonly bodyMaterial = new THREE.MeshLambertMaterial({ color: COLOR_RUNNER });
 
   private coyoteTimer = 0;
   private jumpBufferTimer = 0;
@@ -131,7 +134,7 @@ export class Runner {
 
     const bodyMesh = new THREE.Mesh(
       new THREE.CapsuleGeometry(CAPSULE_RADIUS, CAPSULE_HALF_HEIGHT * 2),
-      new THREE.MeshLambertMaterial({ color: COLOR_RUNNER }),
+      this.bodyMaterial,
     );
     bodyMesh.castShadow = true;
     this.figure.add(bodyMesh);
@@ -147,10 +150,23 @@ export class Runner {
     // Facing marker — a stand-in for the sticker face landing in phase 10.
     const snout = new THREE.Mesh(
       new THREE.BoxGeometry(HEAD_RADIUS, HEAD_RADIUS / 2, HEAD_RADIUS / 2),
-      new THREE.MeshLambertMaterial({ color: COLOR_RUNNER }),
+      this.bodyMaterial,
     );
     snout.position.set(0, HEAD_OFFSET, -HEAD_RADIUS);
     this.figure.add(snout);
+  }
+
+  /**
+   * Wear one of the six colourways.
+   *
+   * The server hands the index out, so a player is the same colour on every
+   * screen including their own — seeing yourself in a different colour to
+   * everyone else's view of you makes callouts useless.
+   */
+  setColorway(index: number): void {
+    this.bodyMaterial.color.setHex(
+      RUNNER_COLORWAYS[index % RUNNER_COLORWAYS.length] ?? COLOR_RUNNER,
+    );
   }
 
   /**

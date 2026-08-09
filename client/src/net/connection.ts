@@ -20,6 +20,8 @@ export interface RemotePlayer {
   fanLaunches: number;
   /** Filler player simulated by the host client, not a person. */
   bot: boolean;
+  /** Index into RUNNER_COLORWAYS; the server hands these out without collisions. */
+  colorway: number;
 }
 
 /** Everything the client renders but does not own. */
@@ -315,6 +317,7 @@ export class Connection {
         coresDropped: player.coresDropped,
         fanLaunches: player.fanLaunches,
         bot: player.bot,
+        colorway: player.colorway,
       });
     });
 

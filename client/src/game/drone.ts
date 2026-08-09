@@ -33,6 +33,11 @@ import {
   BATTERY_COLOR_LOW,
   BATTERY_GAUGE_HEIGHT,
   BATTERY_GAUGE_WIDTH,
+  BATTERY_HALO_OPACITY,
+  BATTERY_HALO_OPACITY_LOW,
+  BATTERY_HALO_PULSE_HZ,
+  BATTERY_HALO_RADIUS,
+  BATTERY_HALO_WIDTH,
   BATTERY_LOW_FRACTION,
   GRAVITY,
   PROP_WASH_DOWNFORCE,
@@ -93,6 +98,17 @@ export class Drone {
   private readonly material = new THREE.MeshLambertMaterial({ color: COLOR_PROP });
   private gaugeFill!: THREE.Mesh;
   private readonly gaugeMaterial = new THREE.MeshBasicMaterial({ color: BATTERY_COLOR_FULL });
+  private halo!: THREE.Mesh;
+  private readonly haloMaterial = new THREE.MeshBasicMaterial({
+    color: BATTERY_COLOR_FULL,
+    transparent: true,
+    opacity: BATTERY_HALO_OPACITY,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  /** Charge the halo geometry was last built for, so it rebuilds only on change. */
+  private haloCharge = -1;
+  private haloClock = 0;
   private telegraphClock = 0;
 
   private tiltPitch = 0;
@@ -200,19 +216,63 @@ export class Drone {
     this.gaugeFill.position.set(0, DRONE_BODY_HEIGHT * 0.1, -DRONE_RADIUS * 1.01);
     this.chassis.add(this.gaugeFill);
 
+    // Battery halo: the same reading with no preferred viewing angle, and big
+    // enough to survive 30 m of arena. Rebuilt each frame as a partial ring,
+    // so charge is legible as an arc as well as a colour.
+    this.halo = new THREE.Mesh(new THREE.RingGeometry(1, 1, 1), this.haloMaterial);
+    this.halo.rotation.x = -Math.PI / 2;
+    // On the object, not the chassis: the readout must not tilt with the body.
+    this.object.add(this.halo);
+
     this.object.add(this.chassis);
   }
 
   /** Drive the body gauge from the authoritative battery, never from a guess. */
-  private renderGauge(charge: number): void {
+  private renderGauge(charge: number, frameDelta: number): void {
     this.gaugeFill.scale.x = Math.max(charge, 0.001);
     // Scaling a centred plane shrinks it both ways, so shift it to stay left-aligned.
     this.gaugeFill.position.x = -(BATTERY_GAUGE_WIDTH / 2) * (1 - charge);
-    this.gaugeMaterial.color.setHex(
-      charge <= 0 ? BATTERY_COLOR_CRITICAL
-        : charge <= BATTERY_LOW_FRACTION ? BATTERY_COLOR_LOW
-        : BATTERY_COLOR_FULL,
-    );
+    const colour = charge <= 0 ? BATTERY_COLOR_CRITICAL
+      : charge <= BATTERY_LOW_FRACTION ? BATTERY_COLOR_LOW
+      : BATTERY_COLOR_FULL;
+    this.gaugeMaterial.color.setHex(colour);
+    this.renderHalo(charge, colour, frameDelta);
+  }
+
+  /**
+   * The halo's arc is the charge and its colour is the band, so it can be read
+   * two ways. It brightens and pulses once the battery is low, which is the
+   * visual half of the telegraph at a distance where the hull strip is a
+   * couple of pixels.
+   */
+  private renderHalo(charge: number, colour: number, frameDelta: number): void {
+    this.haloClock += frameDelta;
+    this.haloMaterial.color.setHex(colour);
+
+    // Rebuilding a ring geometry every frame is wasteful for a value that
+    // moves ~1% a second, so only rebuild when the arc visibly changes.
+    const quantised = Math.round(Math.max(charge, 0) * HALO_STEPS) / HALO_STEPS;
+    if (quantised !== this.haloCharge) {
+      this.haloCharge = quantised;
+      this.halo.geometry.dispose();
+      this.halo.geometry = new THREE.RingGeometry(
+        BATTERY_HALO_RADIUS,
+        BATTERY_HALO_RADIUS + BATTERY_HALO_WIDTH,
+        CYLINDER_SEGMENTS,
+        1,
+        // Start at the top of the ring and open clockwise as it drains.
+        Math.PI / 2,
+        Math.max(quantised, 0.001) * Math.PI * 2,
+      );
+    }
+
+    const low = charge <= BATTERY_LOW_FRACTION;
+    const pulse = low
+      ? 0.5 + 0.5 * Math.sin(this.haloClock * Math.PI * 2 * BATTERY_HALO_PULSE_HZ)
+      : 0;
+    this.haloMaterial.opacity = this.dead
+      ? 0
+      : BATTERY_HALO_OPACITY + (BATTERY_HALO_OPACITY_LOW - BATTERY_HALO_OPACITY) * pulse;
   }
 
   /** Feed raw pointer-lock deltas. The drone turns; it does not pitch. */
@@ -292,6 +352,11 @@ export class Drone {
 
   get isActive(): boolean {
     return this.active;
+  }
+
+  /** Fraction of a full turn the battery halo currently spans. Test hook. */
+  get haloArcTurns(): number {
+    return this.haloCharge;
   }
 
   /**
@@ -534,7 +599,7 @@ export class Drone {
 
   render(alpha: number, frameDelta: number, telegraph = 0, charge = 1): void {
     if (!this.active) return;
-    this.renderGauge(charge);
+    this.renderGauge(charge, frameDelta);
     this.transform.readPosition(this.object.position, alpha);
     this.renderTelegraph(frameDelta, this.dead ? 0 : telegraph);
 
@@ -655,6 +720,12 @@ export class Drone {
 const AI_TURN_RATE = 2.2;
 /** The fill sits slightly inside its backing so the gauge has a visible border. */
 const GAUGE_INSET = 0.72;
+/**
+ * Charge is quantised to this many steps before the halo's arc is rebuilt.
+ * Fifty is finer than the eye resolves on a ring at range, and it turns a
+ * per-frame geometry rebuild into roughly one a second.
+ */
+const HALO_STEPS = 50;
 
 /** Vertical speed below which a falling drone counts as landed. */
 const SETTLED_SPEED = 0.5;

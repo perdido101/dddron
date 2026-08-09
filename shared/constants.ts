@@ -420,9 +420,23 @@ export const PAD_COLOR_SABOTAGED = 0x9aa2a8;
 /** Pad ring rotation, so an active pad reads as live (manifest, PROC, P1). */
 export const PAD_RING_SPIN = 0.5;
 
-/** Six runner colourways, tinted per player index (manifest, PROC, P0). */
+/**
+ * Six runner colourways, tinted per player index (manifest, PROC, P0).
+ *
+ * Revised in the session 5 materials pass. The first set was six pastels of
+ * near-identical lightness, which is the one thing that does not survive 30 m:
+ * hue desaturates with distance and haze, and what is left to tell people
+ * apart is value. These alternate light and dark as well as walking round the
+ * wheel, so they stay separable both at range and to a colour-blind player.
+ * Still pastel — the look is oversized plastic, not team shooter.
+ */
 export const RUNNER_COLORWAYS = [
-  0xf28f8f, 0x8fd0f2, 0xa8e6a3, 0xffd98a, 0xd4a6f2, 0xf2b48f,
+  0xf28f8f, // coral      light warm
+  0x3f7fc4, // deep blue  dark cool
+  0xf6c667, // amber      light warm
+  0x6b4fa8, // violet     dark cool
+  0x7fd4a8, // mint       light cool
+  0xc4437f, // magenta    dark warm
 ] as const;
 
 /** unspecified. Battery gauge colours, readable across the arena (phase 10). */
@@ -657,6 +671,64 @@ export const COLOR_RUNNER_HEAD = 0xffe3c9;
 export const COLOR_DEBUG_CUBE = 0xf5c76a;
 export const COLOR_LIGHT_SKY = 0xe8f4ff;
 export const COLOR_LIGHT_GROUND = 0xb0a696;
+
+/**
+ * Rim light: a dim, cool light from behind and opposite the sun. It does no
+ * work on the lit side and exists only to draw a bright edge on silhouettes,
+ * which is what stops a runner disappearing against a same-value wall.
+ */
+export const RIM_LIGHT_COLOR = 0xcfe8ff;
+export const RIM_LIGHT_INTENSITY = 0.55;
+export const RIM_LIGHT_POSITION = [-30.0, 16.0, -24.0] as const;
+
+/** Floor ambient-occlusion gradient, generated at runtime (no asset files). */
+export const FLOOR_AO_TEXTURE_SIZE = 256;
+/** How dark the floor gets in the corners. 0 = flat, 1 = black. */
+export const FLOOR_AO_STRENGTH = 0.34;
+/** Fraction of the half-extent over which the darkening falls off. */
+export const FLOOR_AO_FALLOFF = 0.42;
+
+/** Sky gradient: the horizon colour a large backdrop sphere fades to. */
+export const COLOR_SKY_HORIZON = 0xe8f2f7;
+
+/** Pad animation rates, one per state (handoff 02, session 5). */
+export const PAD_SPIN_AVAILABLE = 0.35;
+export const PAD_SPIN_DOCKED = 2.6;
+export const PAD_SPIN_BLOCKED = 0.0;
+export const PAD_SPIN_SABOTAGED = -1.4;
+/** Pulse rates in Hz. Zero means a steady ring. */
+export const PAD_PULSE_AVAILABLE = 0.0;
+export const PAD_PULSE_BLOCKED = 1.1;
+export const PAD_PULSE_DOCKED = 3.2;
+export const PAD_PULSE_SABOTAGED = 6.5;
+/** How far the pulse dips the ring's brightness. */
+export const PAD_PULSE_DEPTH = 0.45;
+
+/**
+ * Light shaft over a carried core, so "who has one" is legible across the
+ * arena rather than only at conversational distance.
+ */
+export const CORE_SHAFT_RADIUS = 0.42;
+export const CORE_SHAFT_HEIGHT = 7.0;
+export const CORE_SHAFT_OPACITY = 0.3;
+export const CORE_SHAFT_SPIN = 0.9;
+
+/**
+ * Battery halo: a flat ring around the drone, coloured by charge.
+ *
+ * The hull gauge is a strip on one face, which is unreadable from in front and
+ * unreadable at all at 30 m. Every player is timing their round off the
+ * battery, so it needs a readout with no preferred viewing angle — a ring has
+ * none, and a metre of saturated colour survives the distance the strip does
+ * not. Charge is shown as the ring's colour and its opening angle together.
+ */
+export const BATTERY_HALO_RADIUS = 1.05;
+export const BATTERY_HALO_WIDTH = 0.16;
+/** Baseline opacity, and how much brighter it gets as the battery empties. */
+export const BATTERY_HALO_OPACITY = 0.5;
+export const BATTERY_HALO_OPACITY_LOW = 0.95;
+/** Halo pulse, in Hz, once the battery is inside BATTERY_LOW_FRACTION. */
+export const BATTERY_HALO_PULSE_HZ = 2.4;
 
 /**
  * Fog is a horizon softener only. The arena diagonal is ~85 m and runners have

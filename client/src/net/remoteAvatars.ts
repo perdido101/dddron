@@ -4,7 +4,12 @@ import {
   CAPSULE_HALF_HEIGHT,
   CAPSULE_RADIUS,
   COLOR_CORE,
+  COLOR_CORE_CARRIED,
   COLOR_PROP,
+  CORE_SHAFT_HEIGHT,
+  CORE_SHAFT_OPACITY,
+  CORE_SHAFT_RADIUS,
+  CORE_SHAFT_SPIN,
   COLOR_RUNNER,
   COLOR_RUNNER_HEAD,
   CORE_RADIUS,
@@ -12,6 +17,7 @@ import {
   HEAD_OFFSET,
   HEAD_RADIUS,
   NET_INTERPOLATION_LAG,
+  RUNNER_COLORWAYS,
 } from '@shared/constants';
 
 import type { NetSnapshot } from './connection';
@@ -45,6 +51,9 @@ export class RemoteAvatars {
 
   private readonly avatars = new Map<string, Avatar>();
   private readonly coreMeshes: THREE.Mesh[] = [];
+  /** One light shaft per core, shown only while that core is carried. */
+  private readonly coreShafts: THREE.Mesh[] = [];
+  private shaftClock = 0;
 
   constructor(private readonly scene: THREE.Scene) {}
 
@@ -60,7 +69,7 @@ export class RemoteAvatars {
 
       let avatar = this.avatars.get(player.sessionId);
       if (!avatar) {
-        avatar = this.createAvatar(player.role);
+        avatar = this.createAvatar(player.role, player.colorway);
         this.avatars.set(player.sessionId, avatar);
       }
       avatar.target.set(player.x, player.y, player.z);
@@ -87,10 +96,10 @@ export class RemoteAvatars {
     this.droneTracked = flier !== undefined;
     if (flier) this.dronePosition.copy(flier.group.position);
 
-    this.syncCores(snapshot);
+    this.syncCores(snapshot, frameDelta);
   }
 
-  private createAvatar(role: string): Avatar {
+  private createAvatar(role: string, colorway: number): Avatar {
     const group = new THREE.Group();
 
     if (role === 'drone') {
@@ -101,9 +110,13 @@ export class RemoteAvatars {
       hull.castShadow = true;
       group.add(hull);
     } else {
+      // The body carries the colourway; the head stays a constant skin tone,
+      // so the tint reads as clothing rather than as a different species.
       const body = new THREE.Mesh(
         new THREE.CapsuleGeometry(CAPSULE_RADIUS, CAPSULE_HALF_HEIGHT * 2),
-        new THREE.MeshLambertMaterial({ color: COLOR_RUNNER }),
+        new THREE.MeshLambertMaterial({
+          color: RUNNER_COLORWAYS[colorway % RUNNER_COLORWAYS.length] ?? COLOR_RUNNER,
+        }),
       );
       body.castShadow = true;
       const head = new THREE.Mesh(
@@ -120,7 +133,7 @@ export class RemoteAvatars {
   }
 
   /** Server-owned cores. Local core visuals are disabled while connected. */
-  private syncCores(snapshot: NetSnapshot): void {
+  private syncCores(snapshot: NetSnapshot, frameDelta: number): void {
     while (this.coreMeshes.length < snapshot.cores.length) {
       const mesh = new THREE.Mesh(
         new THREE.CapsuleGeometry(CORE_RADIUS, CORE_RADIUS * 1.1),
@@ -129,27 +142,81 @@ export class RemoteAvatars {
       mesh.castShadow = true;
       this.scene.add(mesh);
       this.coreMeshes.push(mesh);
+      this.coreShafts.push(this.createShaft());
     }
 
+    this.shaftClock += frameDelta * CORE_SHAFT_SPIN;
     for (let i = 0; i < this.coreMeshes.length; i += 1) {
       const mesh = this.coreMeshes[i];
+      const shaft = this.coreShafts[i];
       const core = snapshot.cores[i];
       if (!mesh) continue;
       if (!core || core.state === 'inserted') {
         mesh.visible = false;
+        if (shaft) shaft.visible = false;
         continue;
       }
       mesh.visible = true;
       mesh.position.set(core.x, core.y, core.z);
+
+      // The shaft only rises over a core somebody is carrying. On the ground a
+      // core is a thing to go and get; in someone's hands it is a thing to
+      // chase, and that difference has to be legible from across the arena.
+      if (!shaft) continue;
+      shaft.visible = core.state === 'carried';
+      if (shaft.visible) {
+        shaft.position.set(core.x, core.y + CORE_SHAFT_HEIGHT / 2, core.z);
+        shaft.rotation.y = this.shaftClock;
+      }
     }
   }
 
+  /**
+   * A tapered, additive, depth-write-free cone. Additive so it brightens
+   * whatever is behind it rather than hiding it, and depthWrite off so two
+   * shafts crossing do not carve holes in each other.
+   */
+  private createShaft(): THREE.Mesh {
+    const shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(CORE_SHAFT_RADIUS * 2.2, CORE_SHAFT_RADIUS, CORE_SHAFT_HEIGHT, 12, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: COLOR_CORE_CARRIED,
+        transparent: true,
+        opacity: CORE_SHAFT_OPACITY,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    shaft.visible = false;
+    this.scene.add(shaft);
+    return shaft;
+  }
+
   /** Dev-only census, so a test can assert what is actually on screen. */
-  census(): { avatars: number; cores: number; corePositions: number[][] } {
+  census(): {
+    avatars: number;
+    cores: number;
+    corePositions: number[][];
+    shafts: number;
+    avatarColors: string[];
+  } {
     const corePositions = this.coreMeshes
       .filter((mesh) => mesh.visible)
       .map((mesh) => [mesh.position.x, mesh.position.y, mesh.position.z]);
-    return { avatars: this.avatars.size, cores: corePositions.length, corePositions };
+    const avatarColors: string[] = [];
+    for (const avatar of this.avatars.values()) {
+      const body = avatar.group.children[0] as THREE.Mesh | undefined;
+      const material = body?.material as THREE.MeshLambertMaterial | undefined;
+      if (material?.color) avatarColors.push(`#${material.color.getHexString()}`);
+    }
+    return {
+      avatars: this.avatars.size,
+      cores: corePositions.length,
+      corePositions,
+      shafts: this.coreShafts.filter((shaft) => shaft.visible).length,
+      avatarColors,
+    };
   }
 
   /** Remove everything, e.g. when the connection drops. */

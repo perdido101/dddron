@@ -165,6 +165,8 @@ async function boot(): Promise<void> {
   const autopilotTargets: { alive: boolean; position: THREE.Vector3 }[] = [];
   /** The server's word on whether the drone is grounded, for prop wash. */
   let netDroneKnocked = false;
+  /** Our own colourway, applied once rather than every frame. */
+  let myColorway = -1;
   /** Local mirror of the server's hold timer, purely to fill the prompt bar. */
   let netHoldKind: 'pickup' | 'insert' | null = null;
   let netHoldTimer = 0;
@@ -303,6 +305,8 @@ async function boot(): Promise<void> {
         ]),
         localDroneVisible: drone.object.visible,
         localDroneSimulating: drone.isActive,
+        localShafts: objective.cores.filter((core) => core.shaft.visible).length,
+        haloArc: drone.haloArcTurns,
         botDroneId,
         ...avatars.census(),
       }),
@@ -538,6 +542,10 @@ async function boot(): Promise<void> {
       // whoever it says is the drone flies, and every other client stows its
       // local copy of the drone rather than simulating a second one.
       const me = snapshot.players.find((player) => player.sessionId === net.sessionId);
+      if (me && me.colorway !== myColorway) {
+        myColorway = me.colorway;
+        runner.setColorway(myColorway);
+      }
       const playing = snapshot.phase === 'playing';
       const flying = me?.role === 'drone' && playing;
       if (flying !== (pilot === 'drone')) {

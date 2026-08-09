@@ -35,6 +35,12 @@ export class PlayerState extends Schema {
   fanLaunches = 0;
   /** Server-driven filler player. Simulated by the host client. */
   bot = false;
+  /**
+   * Index into RUNNER_COLORWAYS. Assigned by the server rather than derived
+   * from a hash of the session id, because a hash can collide and two runners
+   * in the same colour is precisely the thing the colourways exist to prevent.
+   */
+  colorway = 0;
 }
 defineTypes(PlayerState, {
   sessionId: 'string',
@@ -54,6 +60,7 @@ defineTypes(PlayerState, {
   coresDropped: 'uint8',
   fanLaunches: 'uint8',
   bot: 'boolean',
+  colorway: 'uint8',
 });
 
 export class CoreEntity extends Schema {

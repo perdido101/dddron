@@ -22,6 +22,7 @@ import {
   PROP_WASH_RADIUS,
   RECONNECT_WINDOW,
   ROUNDS_PER_MATCH_MIN,
+  RUNNER_COLORWAYS,
   SCORE_DRONE_ELIM,
   SCORE_DRONE_WIPE,
   SCORE_EMP_FIRED,
@@ -254,6 +255,7 @@ export class GameRoom extends Room<GameState> {
     // Basic role assignment for phase 5: first in flies, everyone else runs.
     // Phase 6 replaces this with the lobby, and phase 9 with rotation.
     player.role = this.hasDrone() ? 'runner' : 'drone';
+    player.colorway = this.freeColorway();
     this.placeAtSpawn(player);
     this.state.players.set(client.sessionId, player);
     console.log(`[room ${this.roomId}] join ${client.sessionId} "${player.nickname}" as ${player.role}`);
@@ -411,6 +413,20 @@ export class GameRoom extends Room<GameState> {
     });
   }
 
+  /**
+   * Lowest colourway nobody is using. MAX_PLAYERS is 8 and there are 6
+   * colourways, so the last two players do share — unavoidable, and better
+   * than a hash that can collide with two players in the room.
+   */
+  private freeColorway(): number {
+    const taken = new Set<number>();
+    this.state.players.forEach((player) => taken.add(player.colorway));
+    for (let i = 0; i < RUNNER_COLORWAYS.length; i += 1) {
+      if (!taken.has(i)) return i;
+    }
+    return this.state.players.size % RUNNER_COLORWAYS.length;
+  }
+
   private humanCount(): number {
     let count = 0;
     this.state.players.forEach((player) => {
@@ -433,6 +449,7 @@ export class GameRoom extends Room<GameState> {
       bot.role = 'runner';
       bot.bot = true;
       bot.ready = true;
+      bot.colorway = this.freeColorway();
       this.placeAtSpawn(bot);
       this.state.players.set(bot.sessionId, bot);
     }

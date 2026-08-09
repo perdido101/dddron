@@ -13,6 +13,10 @@ import {
   CORE_PICKUP_HOLD,
   CORE_PICKUP_RADIUS,
   CORE_RADIUS,
+  CORE_SHAFT_HEIGHT,
+  CORE_SHAFT_OPACITY,
+  CORE_SHAFT_RADIUS,
+  CORE_SHAFT_SPIN,
   CORE_SPIN_RATE,
   EMP_CHARGE_TIME,
   EMP_DRAIN_ON_ABANDON,
@@ -33,6 +37,8 @@ export class PowerCore {
   state: CoreState = 'onPad';
   readonly position = new THREE.Vector3();
   readonly mesh: THREE.Mesh;
+  /** Beam of light over the core while somebody is carrying it. */
+  readonly shaft: THREE.Mesh;
   /** Pad this core is currently blocking, if any. */
   pad: readonly [number, number] | null;
 
@@ -48,6 +54,22 @@ export class PowerCore {
     );
     this.mesh.castShadow = true;
     scene.add(this.mesh);
+
+    // Same light shaft the networked cores get, so the offline build and the
+    // online one read identically — a carried core is visible arena-wide.
+    this.shaft = new THREE.Mesh(
+      new THREE.CylinderGeometry(CORE_SHAFT_RADIUS * 2.2, CORE_SHAFT_RADIUS, CORE_SHAFT_HEIGHT, 12, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: COLOR_CORE_CARRIED,
+        transparent: true,
+        opacity: CORE_SHAFT_OPACITY,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    this.shaft.visible = false;
+    scene.add(this.shaft);
   }
 
   /** True while the core physically occupies a pad and denies it to the drone. */
@@ -58,9 +80,11 @@ export class PowerCore {
   render(frameDelta: number, carrier: Runner | null): void {
     if (this.state === 'inserted') {
       this.mesh.visible = false;
+      this.shaft.visible = false;
       return;
     }
     this.mesh.visible = true;
+    this.shaft.visible = this.state === 'carried';
 
     if (this.state === 'carried' && carrier) {
       // Held overhead, so everyone can see who has it from across the arena.
@@ -72,6 +96,14 @@ export class PowerCore {
       (this.mesh.material as THREE.MeshLambertMaterial).color.setHex(COLOR_CORE_CARRIED);
       this.mesh.position.copy(this.position);
       this.mesh.rotation.set(0, 0, 0);
+      // Positioned after the carry move, not before, or the beam trails the
+      // core it is supposed to be marking by a frame.
+      this.shaft.position.set(
+        this.position.x,
+        this.position.y + CORE_SHAFT_HEIGHT / 2,
+        this.position.z,
+      );
+      this.shaft.rotation.y += frameDelta * CORE_SHAFT_SPIN;
       return;
     }
 
@@ -321,7 +353,10 @@ export class Objective {
 
   render(frameDelta: number): void {
     if (!this.coresVisible) {
-      for (const core of this.cores) core.mesh.visible = false;
+      for (const core of this.cores) {
+        core.mesh.visible = false;
+        core.shaft.visible = false;
+      }
       return;
     }
     for (const core of this.cores) {
