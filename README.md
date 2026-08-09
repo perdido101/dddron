@@ -22,7 +22,17 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 | 8 | Elimination and spectator gremlins | done |
 | 9 | Match structure, rotation and scoring | done |
 | 10 | Juice, audio, procedural art | partial — sourced art outstanding |
-| 11 | Deploy (client live; server host outstanding) | partial |
+| 11 | Deploy — client on Pages, server on Render | done |
+
+Pre-playtest handoff (BUZZKILL_HANDOFF_02):
+
+| Session | Scope | State |
+| --- | --- | --- |
+| 1 | Both halves deployed and reachable | done — awaiting a two-network round |
+| 2 | Sacred-constraint audit + CI guard | done |
+| 3 | Core-loop telemetry, round panel, CSV | done |
+| 4 | Practice mode, bots, dev console | done |
+| 5 | Materials pass — readability at 30 m | done |
 
 Phases 1 and 2 each end in a feel gate. Nothing past a gate gets built until a
 human has played it, because everything downstream is worthless if the gates
@@ -31,14 +41,27 @@ funny-bad, not frustrating-bad, and that is not something a test can assert.
 
 ## Play it
 
-**https://perdido101.github.io/dddron/**
+**https://perdido101.github.io/dddron/** — client, published from this branch by
+`.github/workflows/playtest.yml` on every push. The constraint guard and a
+strict typecheck both gate the deploy.
 
-Published from this branch by `.github/workflows/playtest.yml` on every push, so
-the feel gates can be played from a link. Typecheck gates the deploy. This is a
-playtest harness for the static client only — the real deploy work (Colyseus
-host, environment-based server URL, room cleanup, telemetry) is phase 11.
+**https://dddron.onrender.com** — game server. `/health` and `/stats` are open;
+`/rounds.csv` is one row per round for a spreadsheet.
 
 Click the canvas to capture the mouse.
+
+### Playing on your own
+
+A real match needs three people, but you do not need three people to see the
+game. In the lobby, switch **practice** on and add **bots**: the minimum drops
+to one player, the round plays out properly, and nothing is scored into a
+match. Pick **FLY** or **RUN** — if you choose to run and there are bots in the
+room, a bot takes the pilot seat rather than putting you in it.
+
+Bots walk to the nearest free core, carry it to the station, insert it, and
+then stand in the charge zone. A bot flying the drone uses the same physics
+body and the same autopilot the single-player build uses, so it handles just as
+badly as a person would.
 
 ## Running it locally
 
@@ -69,6 +92,35 @@ Other scripts: `npm run typecheck` (all workspaces, strict), `npm run build`
 | `G` | Gremlin hazard trigger (once per detonation cycle, when eliminated) |
 | `R` | Respawn the runner (revives after a detonation) |
 | `B` | Re-drop the phase 0 test cube |
+| `\` | Dev console (dev builds only) |
+| `M` | Round metrics panel (dev builds only) |
+
+`C` only swaps bodies offline. Online the server assigns your role, and the
+lobby's role picker is how you ask for one.
+
+### Test tooling
+
+Both panels exist for playtests and neither ships: `main.ts` constructs them
+only when `import.meta.env.DEV` or `VITE_DEV_CONSOLE=1`, so Rollup drops the
+modules from a production build entirely.
+
+The dev console can set the battery and cycle, reset or insert every core,
+revive, end the round either way, teleport, and switch all hazards off. Anything
+the server owns is asked for over the wire, and the server only registers that
+handler when started with `BUZZKILL_DEV=1` — the deployed server does not. It
+also lists the sacred constants' live values, so "does the drone handle too
+well" can be checked rather than argued.
+
+Forcing a detonation empties the battery and lets the ordinary step detonate.
+Sacred constraint 2 says detonation is only ever a consequence of the battery
+reaching zero, and the point of the button is to exercise the real path.
+
+The metrics panel shows the round you just played: time to the first and last
+core, how long cores lay free and how much of that was before anyone came for
+them, how they came loose, how long every pad was blocked, how long the drone
+was stranded or down, and how long the EMP charged versus drained. Copy CSV
+puts the session's rounds on the clipboard; the server keeps its own window at
+`/rounds.csv` and medians at `/stats`.
 
 ## Layout
 
