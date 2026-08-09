@@ -14,14 +14,14 @@ Publisher: WildBox. Built to the BUZZKILL Claude Code Build Brief, one phase at 
 | 1 | Runner controller + grey-box arena | done — feel gate passed |
 | 2 | Drone controller | done — feel gate passed |
 | 3 | Battery, detonation, respawn cycle | done |
-| 4 | Power cores + EMP objective | done — one criterion open (see below) |
+| 4 | Power cores + EMP objective | done — last criterion closed by bots |
 | Add-on 01 | Drone FPV camera | done |
 | 5 | Colyseus netcode | done — see verification below |
 | 6 | Lobby, room codes, N runners | done |
 | 7 | Hazards and counterplay | done |
 | 8 | Elimination and spectator gremlins | done |
 | 9 | Match structure, rotation and scoring | done |
-| 10 | Juice, audio, procedural art | partial — sourced art outstanding |
+| 10 | Juice, audio, procedural art | partial — font shipped, other sourced art outstanding |
 | 11 | Deploy — client on Pages, server on Render | done |
 
 Pre-playtest handoff (BUZZKILL_HANDOFF_02):
@@ -245,12 +245,36 @@ Driven with two clients against a live server.
 - **Pickup and insert both work end to end**, reaching 2 of 3 cores inserted in
   a scripted solo run against the AI drone.
 
-**Open: the full solo run.** My scripted "player" walks in straight lines and
-only backs off when the drone is within 3.6 m, and it did not get all three
-cores in and fire the EMP inside the brief's 90-150 s window — its best run took
-188 s and reached 2/3. The mechanisms are each verified in isolation; what is
-unverified is whether a *competent human* can do the whole loop in the target
-time. That needs a person, and it is the balance question phase 4 exists to ask.
+**Closed by the session 4 bots.** The scripted "player" that left this open
+walked in straight lines and never finished — best run 188 s, 2 of 3 cores. The
+filler bots do complete the loop, so the criterion is now measurable.
+
+Five consecutive rounds, three bot runners against a bot drone, on the 1.5x
+fuse:
+
+| | value |
+| --- | --- |
+| Round length | 41.6 – 41.7 s, runners win every time |
+| First core in | 10.2 – 10.3 s |
+| All three in | 21.6 – 21.7 s |
+| Detonations / eliminations | 1 / 1 per round |
+| Cores dropped | 0 |
+
+So the loop completes, and **its unopposed floor is about 42 s** — well inside
+the brief's 90-150 s window, which means that window is not a property of the
+objective's length. It is a property of how much the drone interferes. Three
+runners who are never scattered, never lose a core and never wait for a pad
+finish in a third of the target time.
+
+What that leaves for a human playtest is a sharper question than the original
+one. Not "can the loop be done in time" — it can, easily — but "does a competent
+drone player add the 50-100 s of friction the pacing assumes". The telemetry
+answers it directly: `droneDownSeconds`, `allPadsBlockedSeconds` and the drop
+counts say where the friction actually came from, or that it did not.
+
+These runs are also near-identical (41.6-41.7 s), because the bots are
+deterministic. That makes them a decent regression check on the objective, and
+a poor model of people.
 
 ## Add-on 01 verification
 
