@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {
   CAMERA_FAR,
   CAMERA_NEAR,
+  DRONE_MAX_SPEED,
   FPV_BARREL_DISTORTION,
   FPV_BLOOM_BOOST,
   FPV_CAMERA_OFFSET,
@@ -18,7 +19,6 @@ import {
   FPV_TELEGRAPH_EFFECT_MULT,
   FPV_TRANSITION_MS,
   FPV_VIGNETTE,
-  ROTOR_SPIN_MAX,
 } from '@shared/constants';
 
 /**
@@ -126,9 +126,12 @@ export class FpvFeed {
     this.transition += THREE.MathUtils.clamp(towards - this.transition, -rate, rate);
 
     // Vibration: it is bolted to a buzzing plastic object, so it never sits
-    // perfectly still. Scaled by speed and by how hard the rotors are working.
-    const jitter = velocity.length() * FPV_SHAKE_VELOCITY_MULT
-      + throttle * ROTOR_SPIN_MAX * FPV_SHAKE_RPM_MULT;
+    // perfectly still. Both terms are NORMALISED to 0-1 first, so the multipliers
+    // are amplitudes in radians. Feeding in raw m/s and raw RPM instead made the
+    // constants read as ~35 degrees of sway, which is nausea, not vibration.
+    const jitter =
+      Math.min(velocity.length() / DRONE_MAX_SPEED, 1) * FPV_SHAKE_VELOCITY_MULT
+      + Math.min(throttle, 1) * FPV_SHAKE_RPM_MULT;
     this.shake.set(
       Math.sin(this.clock * 91.3) * jitter,
       Math.sin(this.clock * 77.7) * jitter,
@@ -209,10 +212,15 @@ const FRAGMENT_SHADER = /* glsl */ `
     // so a fast turn skews the frame. This is what sells "cheap camera".
     uv.x += uSkew * (uv.y - 0.5);
 
-    // Barrel distortion, strongest at the edges.
+    // Barrel distortion, strongest at the edges. Normalised by the distortion
+    // at the frame corner so the corners still map to the corners — without
+    // that the lens samples off the edge of the target and leaves black wedges
+    // in the picture rather than a fisheye.
     vec2 centred = uv - 0.5;
     float r2 = dot(centred, centred);
-    vec2 distorted = centred * (1.0 + uBarrel * r2);
+    float k = 1.0 + uBarrel * r2;
+    float kCorner = 1.0 + uBarrel * 0.5;
+    vec2 distorted = centred * (k / kCorner);
 
     // Chromatic aberration scales toward the edges, as a real lens does.
     float edge = length(distorted);
