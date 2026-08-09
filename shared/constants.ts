@@ -686,6 +686,15 @@ export const COLOR_LIGHT_GROUND = 0xb0a696;
 export const SWAT_ANIM_TIME = 0.45;
 
 /**
+ * How far a head turns before the shoulders have to follow, in radians.
+ * About 75 degrees — past that a neck stops being plausible and the body
+ * comes round instead.
+ */
+export const HEAD_YAW_MAX = 1.3;
+/** Neck easing, in seconds to ~63%. Slow enough that a mouse flick glides. */
+export const HEAD_TURN_EASE = 0.09;
+
+/**
  * Sticker faces (manifest, PROC, P1): four expressions on an alpha plane
  * parented to the head. Drawn to a canvas at boot — no image files.
  */

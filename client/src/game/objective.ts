@@ -118,6 +118,13 @@ export class PowerCore {
   }
 }
 
+/** One runner's in-progress hold. */
+interface Hold {
+  kind: 'pickup' | 'insert';
+  target: PowerCore;
+  timer: number;
+}
+
 /** What the HUD needs to draw, and what the tests read. */
 export interface ObjectiveStatus {
   readonly inserted: number;
@@ -146,11 +153,15 @@ export class Objective {
   charge = 0;
   fired = false;
 
-  private carriedBy: Runner | null = null;
-  private carried: PowerCore | null = null;
-  private holdTimer = 0;
-  private holdKind: 'pickup' | 'insert' | null = null;
-  private holdTarget: PowerCore | null = null;
+  /**
+   * Per-runner state, so offline bots can work the objective alongside the
+   * player. This was a single carrier and a single hold, which was correct
+   * while offline meant exactly one body — it stopped being correct the moment
+   * solo play grew bots, and one shared hold timer would have let a bot's
+   * pickup complete under the player's finger.
+   */
+  private readonly held = new Map<Runner, PowerCore>();
+  private readonly holds = new Map<Runner, Hold>();
   private prompt: string | null = null;
   private present = 0;
   private needed = 1;
@@ -181,7 +192,7 @@ export class Objective {
    *
    * @param interact whether the interact key is currently held.
    */
-  step(dt: number, runners: readonly Runner[], interact: boolean): void {
+  step(dt: number, runners: readonly Runner[]): void {
     if (this.fired) return;
 
     // Read the shove flags once per step: both the core drop and the insert
@@ -190,75 +201,73 @@ export class Objective {
     for (const runner of runners) if (runner.consumeShoved()) shoved.add(runner);
 
     this.dropIfShoved(shoved);
-    this.updateHold(dt, runners, interact, shoved);
+    this.prompt = null;
+    for (const runner of runners) this.updateHold(dt, runner, shoved, runner === runners[0]);
     this.updateCharge(dt, runners);
   }
 
   /** Prop wash knocks a carried core loose where the runner stands. */
   private dropIfShoved(shoved: ReadonlySet<Runner>): void {
-    const carrier = this.carriedBy;
-    const core = this.carried;
-    if (!carrier || !core) return;
-    if (!shoved.has(carrier) && carrier.alive) return;
+    for (const [carrier, core] of [...this.held]) {
+      if (!shoved.has(carrier) && carrier.alive) continue;
 
-    core.state = 'loose';
-    // Move it first: the pad test has to run against where it LANDS, not
-    // against where it was being carried.
-    core.position.set(carrier.position.x, CORE_RADIUS, carrier.position.z);
-    core.pad = padUnder(core.position);
-    carrier.carrying = false;
-    this.carriedBy = null;
-    this.carried = null;
-    this.cancelHold();
+      core.state = 'loose';
+      // Move it first: the pad test has to run against where it LANDS, not
+      // against where it was being carried.
+      core.position.set(carrier.position.x, CORE_RADIUS, carrier.position.z);
+      core.pad = padUnder(core.position);
+      carrier.carrying = false;
+      this.held.delete(carrier);
+      this.holds.delete(carrier);
+    }
   }
 
+  /** @param speaks whether this runner's situation drives the on-screen prompt. */
   private updateHold(
     dt: number,
-    runners: readonly Runner[],
-    interact: boolean,
+    actor: Runner,
     shoved: ReadonlySet<Runner>,
+    speaks: boolean,
   ): void {
-    const actor = runners.find((runner) => runner.alive) ?? null;
-    this.prompt = null;
-    if (!actor) {
-      this.cancelHold();
+    if (!actor.alive) {
+      this.holds.delete(actor);
       return;
     }
+    const carried = this.held.get(actor);
 
     // Inserting takes priority: if you are carrying a core and standing in the
     // station, that is obviously what you are trying to do.
-    if (this.carried && this.carriedBy === actor && this.inStation(actor)) {
-      this.prompt = `hold E to insert core (${this.insertedCount + 1}/${CORES_REQUIRED})`;
-      this.runHold(dt, interact, 'insert', this.carried, CORE_INSERT_HOLD, actor, shoved, () => {
-        const core = this.carried;
-        if (!core) return;
-        core.state = 'inserted';
-        core.pad = null;
+    if (carried && this.inStation(actor)) {
+      if (speaks) this.prompt = `hold E to insert core (${this.insertedCount + 1}/${CORES_REQUIRED})`;
+      this.runHold(dt, actor, 'insert', carried, CORE_INSERT_HOLD, actor, shoved, () => {
+        carried.state = 'inserted';
+        carried.pad = null;
         actor.carrying = false;
-        this.carried = null;
-        this.carriedBy = null;
+        this.held.delete(actor);
       });
       return;
     }
 
-    if (this.carried) {
-      this.prompt = 'carry the core to the EMP station';
-      this.cancelHold();
+    if (carried) {
+      if (speaks) this.prompt = 'carry the core to the EMP station';
+      this.holds.delete(actor);
       return;
     }
 
     const target = this.nearestPickup(actor);
     if (!target) {
-      this.cancelHold();
+      this.holds.delete(actor);
       return;
     }
 
-    this.prompt = 'hold E to lift the power core';
-    this.runHold(dt, interact, 'pickup', target, CORE_PICKUP_HOLD, null, shoved, () => {
+    if (speaks) this.prompt = 'hold E to lift the power core';
+    this.runHold(dt, actor, 'pickup', target, CORE_PICKUP_HOLD, null, shoved, () => {
+      // Re-check on completion: two runners can hold the same core, and the
+      // second to finish must not take it out of the first one's hands.
+      if (target.state !== 'onPad' && target.state !== 'loose') return;
       target.state = 'carried';
       target.pad = null;
-      this.carried = target;
-      this.carriedBy = actor;
+      this.held.set(actor, target);
       actor.carrying = true;
     });
   }
@@ -268,7 +277,7 @@ export class Objective {
    */
   private runHold(
     dt: number,
-    interact: boolean,
+    actor: Runner,
     kind: 'pickup' | 'insert',
     target: PowerCore,
     duration: number,
@@ -276,8 +285,8 @@ export class Objective {
     shoved: ReadonlySet<Runner>,
     complete: () => void,
   ): void {
-    if (!interact) {
-      this.cancelHold();
+    if (!actor.interacting) {
+      this.holds.delete(actor);
       return;
     }
     // "Cancels on movement or hit" (brief, phase 4). Movement means the player
@@ -285,25 +294,20 @@ export class Objective {
     // "or hit" clause, and conflating them lets a distant brush of wash cancel
     // every insert without the drone ever committing to the station.
     if (stillness && (stillness.intentSpeed > INTERACT_MOVE_CANCEL_SPEED || shoved.has(stillness))) {
-      this.cancelHold();
+      this.holds.delete(actor);
       return;
     }
-    if (this.holdKind !== kind || this.holdTarget !== target) {
-      this.holdKind = kind;
-      this.holdTarget = target;
-      this.holdTimer = 0;
-    }
-    this.holdTimer += dt;
-    if (this.holdTimer >= duration) {
-      complete();
-      this.cancelHold();
-    }
-  }
 
-  private cancelHold(): void {
-    this.holdTimer = 0;
-    this.holdKind = null;
-    this.holdTarget = null;
+    let hold = this.holds.get(actor);
+    if (!hold || hold.kind !== kind || hold.target !== target) {
+      hold = { kind, target, timer: 0 };
+      this.holds.set(actor, hold);
+    }
+    hold.timer += dt;
+    if (hold.timer >= duration) {
+      complete();
+      this.holds.delete(actor);
+    }
   }
 
   /**
@@ -327,6 +331,14 @@ export class Objective {
     } else {
       this.charge = Math.max(0, this.charge - rate * EMP_DRAIN_ON_ABANDON * dt);
     }
+  }
+
+  /** Who is holding this core, if anyone. */
+  private carrierOf(core: PowerCore): Runner | null {
+    for (const [runner, held] of this.held) {
+      if (held === core) return runner;
+    }
+    return null;
   }
 
   private inStation(runner: Runner): boolean {
@@ -360,7 +372,7 @@ export class Objective {
       return;
     }
     for (const core of this.cores) {
-      core.render(frameDelta, core === this.carried ? this.carriedBy : null);
+      core.render(frameDelta, this.carrierOf(core));
     }
   }
 
@@ -375,8 +387,9 @@ export class Objective {
     this.coresVisible = visible;
   }
 
-  status(): ObjectiveStatus {
-    const duration = this.holdKind === 'insert' ? CORE_INSERT_HOLD : CORE_PICKUP_HOLD;
+  status(player?: Runner): ObjectiveStatus {
+    const hold = player ? this.holds.get(player) : undefined;
+    const duration = hold?.kind === 'insert' ? CORE_INSERT_HOLD : CORE_PICKUP_HOLD;
     return {
       inserted: this.insertedCount,
       required: CORES_REQUIRED,
@@ -385,10 +398,11 @@ export class Objective {
       present: this.present,
       needed: this.needed,
       prompt: this.prompt,
-      holdProgress: this.holdKind ? Math.min(this.holdTimer / duration, 1) : 0,
+      holdProgress: hold ? Math.min(hold.timer / duration, 1) : 0,
       fired: this.fired,
     };
   }
+
 }
 
 function samePad(a: readonly [number, number] | null, b: readonly [number, number]): boolean {

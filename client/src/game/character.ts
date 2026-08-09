@@ -38,6 +38,9 @@ export class Character {
   private clock = 0;
   private readonly tint = new THREE.Color(0xffffff);
   private materials: THREE.MeshLambertMaterial[] = [];
+  /** The head node, turned independently of the body. */
+  private head: THREE.Object3D | null = null;
+  private headYaw = 0;
 
   get loaded(): boolean {
     return this.mixer !== null;
@@ -83,6 +86,10 @@ export class Character {
       body.position.y = -bounds.min.y * scale;
     }
 
+    // The pack names its nodes, so the head can be found without an index that
+    // would silently point at an arm if the model were ever re-exported.
+    this.head = body.getObjectByName('head') ?? null;
+
     this.object.add(body);
     this.mixer = new THREE.AnimationMixer(body);
     for (const clip of animations) {
@@ -106,6 +113,17 @@ export class Character {
     return `#${this.tint.getHexString()}`;
   }
 
+  /**
+   * Where the head is looking, relative to the body's own facing.
+   *
+   * The body stays pointed where it is going and the head turns to follow the
+   * player's gaze, which is what stops a character snapping its whole torso
+   * around every time the camera moves. Clamped by the caller.
+   */
+  setHeadYaw(radians: number): void {
+    this.headYaw = radians;
+  }
+
   /** Pick and advance the clip. Cosmetic, so it runs on the render delta. */
   update(frameDelta: number, state: CharacterState): void {
     const mixer = this.mixer;
@@ -114,6 +132,14 @@ export class Character {
 
     if (this.clock >= this.lockUntil) this.play(this.clipFor(state));
     mixer.update(frameDelta);
+
+    // After the mixer, never before: the clips animate the head themselves, so
+    // writing the look direction first would simply be overwritten. Premultiply
+    // applies the turn in the parent's space, on top of whatever the clip did.
+    if (this.head) {
+      HEAD_SPIN.setFromAxisAngle(UP, this.headYaw);
+      this.head.quaternion.premultiply(HEAD_SPIN);
+    }
   }
 
   private clipFor(state: CharacterState): string {
@@ -219,6 +245,10 @@ export async function loadProps(): Promise<THREE.Object3D[]> {
 }
 
 const PROP_FILES = ['box', 'bucket', 'barrel', 'rock-a'] as const;
+
+/** Scratch values for the head turn, so the render loop allocates nothing. */
+const HEAD_SPIN = new THREE.Quaternion();
+const UP = new THREE.Vector3(0, 1, 0);
 
 /**
  * Relative so the same bundle works at a domain root and under the GitHub

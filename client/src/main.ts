@@ -47,6 +47,7 @@ import { Hazards } from './game/hazards';
 import { Fuse, applyBlast } from '@shared/fuse';
 import { Objective } from './game/objective';
 import { Runner } from './game/runner';
+import { SoloBots } from './game/soloBots';
 import { TestCube } from './game/testCube';
 import { Connection, resolveEndpoint, type NetSnapshot } from './net/connection';
 import { RemoteAvatars } from './net/remoteAvatars';
@@ -160,6 +161,11 @@ async function boot(): Promise<void> {
   // Filler players, so a round can be played below the 3-human minimum. Only
   // the host ever ticks them; every other client just sees relayed avatars.
   const bots = new Bots();
+  // Offline bots are real Runner bodies rather than relayed records: with no
+  // server there is nothing to hold them, and half-simulated filler would make
+  // solo a diorama instead of the game.
+  const soloBots = new SoloBots(physics, view.scene);
+  let soloBotCount = 0;
   const botInteract = new Map<string, boolean>();
   let botSendTimer = 0;
   let lastPhase = '';
@@ -210,13 +216,36 @@ async function boot(): Promise<void> {
     },
     onReady: (ready) => net.setReady(ready),
     onStart: () => net.start(),
-    onSolo: () => { soloMode = true; },
+    onSolo: (bots, asDrone) => {
+      soloMode = true;
+      soloBotCount = bots;
+      // Rebuild the list the objective, the blast and the EMP charge all read,
+      // so bots are participants rather than scenery.
+      soloBots.setCount(bots, (bot) => {
+        if (characterTemplate) bot.attachCharacter(new Character(characterTemplate, characterClips));
+      });
+      runners.length = 1;
+      for (let i = 0; i < bots; i += 1) {
+        const bot = soloBots.runners[i];
+        if (bot) runners.push(bot);
+      }
+      washTargets.length = 0;
+      washTargets.push(...runners);
+      // Picking "fly" hands the runner to the autopilot's quarry list and puts
+      // you in the drone; picking "run" leaves the drone on autopilot, which
+      // is the bot drone.
+      pilot = asDrone ? 'drone' : 'runner';
+      camera.reset();
+      if (asDrone) camera.setYaw(drone.yaw);
+      setHint();
+    },
     onPractice: (on) => net.setPractice(on),
     onRole: (role) => net.setRole(role),
     onBots: (count) => net.setBots(count),
   });
-  // With no server configured there is nothing to join, so go straight in.
-  if (soloMode) lobby.hide();
+  // With no server configured there is nothing to join — but the solo setup
+  // still has to be reachable, so show the landing card with only that on it.
+  if (soloMode) lobby.setSoloOnly();
   else lobby.setStatus(`server: ${endpoint}`);
 
   // Test tooling, and only ever tooling: a production build sets neither of
@@ -247,10 +276,16 @@ async function boot(): Promise<void> {
   // The character model loads in the background. The game is playable from the
   // first frame with primitive bodies and upgrades in place when it arrives —
   // a 134 kB decoration must never hold up the thing it decorates.
+  let characterTemplate: THREE.Object3D | null = null;
+  let characterClips: THREE.AnimationClip[] = [];
   void loadCharacter().then(({ scene, animations }) => {
     if (!scene) return;
+    characterTemplate = scene;
+    characterClips = animations;
     avatars.setCharacterTemplate(scene, animations);
     runner.attachCharacter(new Character(scene, animations));
+    // Bots chosen before the model landed get their body now.
+    for (const bot of soloBots.runners) bot.attachCharacter(new Character(scene, animations));
   });
   void loadProps().then((props) => hazards.setPropModels(props));
 
@@ -331,13 +366,23 @@ async function boot(): Promise<void> {
         localShafts: objective.cores.filter((core) => core.shaft.visible).length,
         haloArc: drone.haloArcTurns,
         botDroneId,
+        soloBots: soloBots.runners.slice(0, soloBotCount).map((bot) => ({
+          alive: bot.alive,
+          carrying: bot.carrying,
+          interacting: bot.interacting,
+          station: +Math.hypot(
+            bot.position.x - EMP_STATION_POSITION[0],
+            bot.position.z - EMP_STATION_POSITION[1],
+          ).toFixed(2),
+          speed: +bot.intentSpeed.toFixed(2),
+        })),
         ...avatars.census(),
       }),
     };
   }
   let roundClock = 0;
   let empFlash = 0;
-  const runners = [runner];
+  const runners: Runner[] = [runner];
 
   // FPV mode: a tap latches the toggle, a hold peeks and reverts on release.
   let fpvMode = window.localStorage.getItem(FPV_STORAGE_KEY) === '1';
@@ -358,6 +403,8 @@ async function boot(): Promise<void> {
     // Both bodies always simulate. When the player is on foot the drone is
     // flown by the phase 4 script, so the objective always has pressure on it.
     runner.fixedUpdate(dt, moveInput, camera.heading);
+    // Offline only: online the server owns every other body.
+    if (!net.connected && soloBotCount > 0) soloBots.fixedUpdate(dt, objective, soloBotCount);
 
     // Online the autopilot flies the bot drone against everyone in the room;
     // offline it flies the phase 4 scripted drone against the local runner.
@@ -434,7 +481,8 @@ async function boot(): Promise<void> {
     // and this copy would only fight it, so the prompt is derived from the
     // snapshot instead (see promptFor) and nothing here steps.
     if (net.connected) return;
-    objective.step(dt, runners, interactHeld);
+    runner.interacting = interactHeld;
+    objective.step(dt, runners);
     if (objective.fired && empFlash === 0) {
       juice.empFired();
       // Runners win the moment the EMP fires. The drone drops dead.
@@ -667,7 +715,7 @@ async function boot(): Promise<void> {
     }
     devConsole?.setContext(snapshot !== null, snapshot?.devEnabled ?? false);
 
-    runner.render(physics.alpha, frameDelta, interactHeld);
+    runner.render(physics.alpha, frameDelta, interactHeld, camera.heading);
     drone.render(physics.alpha, frameDelta, fuse.telegraphProgress, fuse.charge);
     arena.render(frameDelta);
 
@@ -809,7 +857,7 @@ async function boot(): Promise<void> {
     // The hold prompt is a local affordance and stays local; the numbers it
     // sits under are the server's whenever there is one (sacred constraint 3
     // is about battery, but the same reasoning covers cores and the EMP).
-    const local = objective.status();
+    const local = objective.status(runner);
     let status = local;
     if (snapshot) {
       const action = snapshot.phase === 'playing'

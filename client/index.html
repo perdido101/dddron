@@ -330,7 +330,10 @@
         cursor: pointer;
       }
       .lobby-card button:disabled { background: #ccd6e2; color: #7d8b99; cursor: not-allowed; }
-      .lobby-card button.lobby-solo { background: transparent; color: #5a6b7d; font-weight: 400; letter-spacing: 0; }
+      .lobby-card button.lobby-solo { background: #dfe6ef; color: #46566a; }
+      /* The solo block sits between JOIN and the solo button, so it needs a
+         little air above it or it reads as part of the join row. */
+      .lobby-solo-setup { margin-top: 12px; }
       /* Promoted when the server cannot be reached: it is the only thing that
          still works, so it stops looking like a footnote. */
       .lobby-card button.lobby-solo.lobby-solo-primary {

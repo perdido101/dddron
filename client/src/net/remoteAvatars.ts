@@ -11,6 +11,7 @@ import {
   CORE_SHAFT_RADIUS,
   CORE_SHAFT_SPIN,
   FOOT_OFFSET,
+  HEAD_YAW_MAX,
   COLOR_RUNNER,
   COLOR_RUNNER_HEAD,
   CORE_RADIUS,
@@ -28,6 +29,8 @@ interface Avatar {
   group: THREE.Group;
   target: THREE.Vector3;
   targetYaw: number;
+  /** Direction of travel, which is where the body points. */
+  travelYaw: number;
   /** The animated body, when the model loaded. Drones get none. */
   character: Character | null;
   /** Previous position, so speed can drive the clip without a velocity feed. */
@@ -112,7 +115,32 @@ export class RemoteAvatars {
     const blend = 1 - Math.exp(-frameDelta / NET_INTERPOLATION_LAG);
     for (const avatar of this.avatars.values()) {
       avatar.group.position.lerp(avatar.target, blend);
-      avatar.group.rotation.y += shortestAngle(avatar.group.rotation.y, avatar.targetYaw) * blend;
+
+      // A drone has no body/head split: its reported yaw IS its facing.
+      if (!avatar.character) {
+        avatar.group.rotation.y += shortestAngle(avatar.group.rotation.y, avatar.targetYaw) * blend;
+        continue;
+      }
+
+      // Runners report where they are LOOKING, which is the camera heading.
+      // Turning the whole body to that would make every remote player pirouette
+      // whenever they glanced around, so the body follows where they are
+      // actually travelling and the head takes the difference — the same split
+      // the local runner uses, driven from the only yaw the wire carries.
+      if (avatar.speed > REMOTE_FACING_EPSILON) {
+        avatar.travelYaw = Math.atan2(
+          -(avatar.group.position.x - avatar.previous.x),
+          -(avatar.group.position.z - avatar.previous.z),
+        );
+      }
+      const offset = shortestAngle(avatar.travelYaw, avatar.targetYaw);
+      const look = Math.max(-HEAD_YAW_MAX, Math.min(offset, HEAD_YAW_MAX));
+      // Past what a neck reaches, the shoulders come round to meet the gaze.
+      if (Math.abs(offset) > HEAD_YAW_MAX) {
+        avatar.travelYaw += (offset - look) * blend;
+      }
+      avatar.group.rotation.y += shortestAngle(avatar.group.rotation.y, avatar.travelYaw) * blend;
+      avatar.character.setHeadYaw(look);
     }
 
     // Read the interpolated position, not the raw snapshot: hazards should
@@ -166,6 +194,7 @@ export class RemoteAvatars {
       group,
       target: new THREE.Vector3(),
       targetYaw: 0,
+      travelYaw: 0,
       character,
       previous: new THREE.Vector3(),
       speed: 0,
@@ -282,6 +311,9 @@ export class RemoteAvatars {
     for (const mesh of this.coreMeshes) mesh.visible = false;
   }
 }
+
+/** Below this on-screen speed, keep the last travel direction. */
+const REMOTE_FACING_EPSILON = 0.2;
 
 function shortestAngle(from: number, to: number): number {
   let delta = (to - from) % (Math.PI * 2);

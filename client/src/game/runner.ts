@@ -20,6 +20,8 @@ import {
   CONTROLLER_SNAP_TO_GROUND,
   COYOTE_TIME,
   FACING_TURN_RATE,
+  HEAD_TURN_EASE,
+  HEAD_YAW_MAX,
   FOOT_OFFSET,
   GRAVITY,
   HEAD_OFFSET,
@@ -68,6 +70,12 @@ export class Runner {
   alive = true;
   /** Carrying a power core: slower, and no jumping (brief, phase 4). */
   carrying = false;
+  /**
+   * Whether this runner is holding the interact key. The player's is set from
+   * input; a bot's is set by its brain. The objective reads it off the runner
+   * so it does not have to know which is which.
+   */
+  interacting = false;
 
   private readonly body: RAPIER.RigidBody;
   private readonly collider: RAPIER.Collider;
@@ -87,6 +95,8 @@ export class Runner {
   private coyoteTimer = 0;
   private jumpBufferTimer = 0;
   private facing = 0;
+  /** Eased head yaw relative to the body, in radians. */
+  private headYaw = 0;
   private bobPhase = 0;
   private squashAmount = 0;
   private squashTimer = SQUASH_RECOVER_TIME;
@@ -203,6 +213,26 @@ export class Runner {
     // faintest brush at the very edge of the wash counts, and a core can never
     // be carried anywhere while the drone is on the same side of the arena.
     if (force.length() >= CORE_DROP_PUSH) this.shoved = true;
+  }
+
+  /**
+   * Take this body out of play without destroying it.
+   *
+   * Used by the solo bot pool when the count drops: Rapier colliders are
+   * awkward to remove mid-session, and a parked body under the floor collides
+   * with nothing and is drawn nowhere.
+   */
+  park(): void {
+    this.object.visible = false;
+    this.alive = false;
+    this.interacting = false;
+    this.moveTo(PARKED[0], PARKED[1], PARKED[2]);
+  }
+
+  unpark(): void {
+    if (this.object.visible) return;
+    this.object.visible = true;
+    this.respawn();
   }
 
   /** Play the melee swing. Cosmetic only — the swat's reach is Hazards' call. */
@@ -369,8 +399,9 @@ export class Runner {
    * Interpolate to the render time and drive the cosmetic rig.
    *
    * @param interacting whether the interact key is held, for the pick-up clip.
+   * @param lookYaw where the player is looking; the head turns to match.
    */
-  render(alpha: number, frameDelta: number, interacting = false): void {
+  render(alpha: number, frameDelta: number, interacting = false, lookYaw = 0): void {
     this.transform.readPosition(this.object.position, alpha);
 
     const speed = Math.hypot(this.realised.x, this.realised.z);
@@ -384,9 +415,30 @@ export class Runner {
     });
     const speedRatio = Math.min(speed / RUN_SPEED, 1);
 
+    // Body and head are steered separately.
+    //
+    // The body points where it is going, and keeps pointing there while you
+    // look around — spinning a whole torso every time the camera moves reads
+    // as a turret, not a person. The head takes up the difference, and only
+    // when the difference outgrows a neck does the body come round to meet it.
     if (speed > MOVE_EPSILON) {
       const target = Math.atan2(-this.realised.x, -this.realised.z);
       this.facing = turnToward(this.facing, target, FACING_TURN_RATE * frameDelta);
+    }
+
+    const offset = shortestAngle(this.facing, lookYaw);
+    const look = THREE.MathUtils.clamp(offset, -HEAD_YAW_MAX, HEAD_YAW_MAX);
+    // Ease the neck so a flick of the mouse does not snap the head round.
+    this.headYaw += (look - this.headYaw) * (1 - Math.exp(-frameDelta / HEAD_TURN_EASE));
+    this.character?.setHeadYaw(this.headYaw);
+
+    if (Math.abs(offset) > HEAD_YAW_MAX) {
+      // Looked past what the neck can reach: the shoulders follow.
+      this.facing = turnToward(
+        this.facing,
+        lookYaw - Math.sign(offset) * HEAD_YAW_MAX,
+        FACING_TURN_RATE * frameDelta,
+      );
     }
     this.figure.rotation.y = this.facing;
 
@@ -433,14 +485,22 @@ export class Runner {
   }
 }
 
+/** Far below the arena floor, where a parked body touches nothing. */
+const PARKED: readonly [number, number, number] = [0, -400, 0];
+
 function fmt(v: THREE.Vector3): string {
   return `${v.x.toFixed(4)}, ${v.y.toFixed(4)}, ${v.z.toFixed(4)}`;
 }
 
-/** Shortest-arc turn from `current` toward `target`, capped at `maxDelta`. */
-function turnToward(current: number, target: number, maxDelta: number): number {
-  let delta = (target - current) % (Math.PI * 2);
+/** Shortest signed angle from `from` to `to`, in (-pi, pi]. */
+function shortestAngle(from: number, to: number): number {
+  let delta = (to - from) % (Math.PI * 2);
   if (delta > Math.PI) delta -= Math.PI * 2;
   if (delta < -Math.PI) delta += Math.PI * 2;
-  return current + THREE.MathUtils.clamp(delta, -maxDelta, maxDelta);
+  return delta;
+}
+
+/** Shortest-arc turn from `current` toward `target`, capped at `maxDelta`. */
+function turnToward(current: number, target: number, maxDelta: number): number {
+  return current + THREE.MathUtils.clamp(shortestAngle(current, target), -maxDelta, maxDelta);
 }

@@ -7,7 +7,8 @@ export interface LobbyCallbacks {
   onJoin: (nickname: string, code: string) => void;
   onReady: (ready: boolean) => void;
   onStart: () => void;
-  onSolo: () => void;
+  /** @param bots how many bot runners; @param asDrone true to fly it yourself. */
+  onSolo: (bots: number, asDrone: boolean) => void;
   onPractice: (on: boolean) => void;
   onRole: (role: 'drone' | 'runner') => void;
   onBots: (count: number) => void;
@@ -44,6 +45,9 @@ export class Lobby {
   private ready = false;
   /** Last bot count we saw from the server, so ± can step from it. */
   private bots = 0;
+  /** Solo setup, kept here because there is no server to hold it. */
+  private soloBots = 2;
+  private soloAsDrone = false;
 
   constructor(private readonly callbacks: LobbyCallbacks, parent: HTMLElement = document.body) {
     this.root = document.createElement('div');
@@ -58,7 +62,20 @@ export class Lobby {
           <input class="lobby-code" maxlength="${ROOM_CODE_LENGTH}" placeholder="CODE" />
           <button class="lobby-joinbtn">JOIN</button>
         </div>
-        <button class="lobby-solo">play solo (no server)</button>
+        <div class="lobby-setup lobby-solo-setup">
+          <div class="lobby-row">
+            <span>solo — you</span>
+            <button class="lobby-solo-run" data-on="1">RUN</button>
+            <button class="lobby-solo-fly" data-on="0">FLY</button>
+          </div>
+          <div class="lobby-row">
+            <span>bot runners</span>
+            <button class="lobby-solo-down">&minus;</button>
+            <span class="lobby-solo-count">2</span>
+            <button class="lobby-solo-up">+</button>
+          </div>
+        </div>
+        <button class="lobby-solo">PLAY SOLO (NO SERVER)</button>
         <p class="lobby-status"></p>
       </div>
 
@@ -66,7 +83,7 @@ export class Lobby {
         <p class="lobby-sub">ROOM CODE</p>
         <h1 class="lobby-codelabel">----</h1>
         <ul class="lobby-players"></ul>
-        <div class="lobby-setup">
+        <div class="lobby-setup lobby-room-setup">
           <div class="lobby-row lobby-practicerow">
             <span>practice (1 player + bots)</span>
             <button class="lobby-practice" data-on="0">OFF</button>
@@ -108,7 +125,7 @@ export class Lobby {
     this.readyButton = this.pick('.lobby-ready');
     this.status = this.pick('.lobby-status');
     this.hint = this.pick('.lobby-hint');
-    this.setup = this.pick('.lobby-setup');
+    this.setup = this.pick('.lobby-room-setup');
     this.practiceRow = this.pick('.lobby-practicerow');
     this.practiceButton = this.pick('.lobby-practice');
     this.botRow = this.pick('.lobby-botrow');
@@ -143,9 +160,27 @@ export class Lobby {
       this.status.textContent = 'joining…';
       this.callbacks.onJoin(this.name(), code);
     };
+    const soloRun = this.pick<HTMLButtonElement>('.lobby-solo-run');
+    const soloFly = this.pick<HTMLButtonElement>('.lobby-solo-fly');
+    const soloCount = this.pick('.lobby-solo-count');
+    const setSoloRole = (drone: boolean): void => {
+      this.soloAsDrone = drone;
+      soloRun.dataset.on = drone ? '0' : '1';
+      soloFly.dataset.on = drone ? '1' : '0';
+    };
+    soloRun.onclick = () => setSoloRole(false);
+    soloFly.onclick = () => setSoloRole(true);
+    this.pick<HTMLButtonElement>('.lobby-solo-down').onclick = () => {
+      this.soloBots = Math.max(0, this.soloBots - 1);
+      soloCount.textContent = String(this.soloBots);
+    };
+    this.pick<HTMLButtonElement>('.lobby-solo-up').onclick = () => {
+      this.soloBots = Math.min(MAX_PLAYERS - 1, this.soloBots + 1);
+      soloCount.textContent = String(this.soloBots);
+    };
     this.pick<HTMLButtonElement>('.lobby-solo').onclick = () => {
       this.hide();
-      this.callbacks.onSolo();
+      this.callbacks.onSolo(this.soloBots, this.soloAsDrone);
     };
     this.readyButton.onclick = () => {
       this.ready = !this.ready;
@@ -171,6 +206,23 @@ export class Lobby {
 
   setStatus(message: string): void {
     this.status.textContent = message;
+  }
+
+  /**
+   * No server is configured at all, so hide the parts that need one.
+   *
+   * Previously this case skipped the landing screen entirely and dropped the
+   * player straight into an empty arena — which meant the solo setup, the
+   * thing that gives them bots and a choice of role, was unreachable exactly
+   * when it was the only thing that worked.
+   */
+  setSoloOnly(): void {
+    this.pick('.lobby-nick').hidden = true;
+    this.pick('.lobby-create').hidden = true;
+    this.pick('.lobby-join').hidden = true;
+    this.pick('.lobby-sub').textContent = 'no server configured · solo play';
+    this.status.textContent = '';
+    this.show();
   }
 
   /**
